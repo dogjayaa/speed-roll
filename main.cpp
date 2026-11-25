@@ -53,19 +53,45 @@ constexpr double kDefaultCurvePower = 1.8;
 constexpr double kDefaultHorizontalMultiplier = 1.0;
 
 // Settings-window geometry in 96-DPI logical pixels.
-constexpr int kSettingsWidth = 640;
-constexpr int kSettingsHeight = 640;
-constexpr int kHeaderHeight = 96;
-constexpr int kCardLeft = 16;
-constexpr int kCardTop = 80;
-constexpr int kCardRight = 624;
-constexpr int kCardBottom = 552;
-constexpr int kRowX = 36;
-constexpr int kRowStartY = 190;
-constexpr int kRowGap = 32;
-constexpr int kRowHeight = 30;
-constexpr int kEditX = 386;
-constexpr int kEditWidth = 190;
+constexpr int kSettingsWidth = 940;
+constexpr int kSettingsHeight = 680;
+constexpr int kSidebarWidth = 210;
+constexpr int kPageHeaderHeight = 76;
+constexpr int kContentLeft = 234;
+constexpr int kContentRight = 916;
+constexpr int kSummaryTop = 92;
+constexpr int kSummaryHeight = 80;
+constexpr int kSummaryTileWidth = 220;
+constexpr int kSummaryGap = 11;
+constexpr int kActionTop = 186;
+constexpr int kActionHeight = 64;
+constexpr int kLowerTop = 264;
+constexpr int kLowerHeight = 320;
+constexpr int kLeftCardLeft = 234;
+constexpr int kLeftCardRight = 640;
+constexpr int kLeftCardTop = 264;
+constexpr int kLeftCardBottom = 584;
+constexpr int kRightCardLeft = 652;
+constexpr int kRightCardRight = 916;
+constexpr int kBehaviorTop = 264;
+constexpr int kBehaviorBottom = 386;
+constexpr int kBlacklistCardTop = 398;
+constexpr int kBlacklistCardBottom = 584;
+constexpr int kFooterBorderY = 594;
+constexpr int kButtonY = 606;
+constexpr int kButtonHeight = 42;
+constexpr int kFieldX1 = 252;
+constexpr int kFieldX2 = 443;
+constexpr int kFieldWidth = 179;
+constexpr int kFieldY1 = 312;
+constexpr int kFieldY2 = 378;
+constexpr int kFieldY3 = 444;
+constexpr int kFieldEditOffset = 30;
+constexpr int kFieldEditHeight = 28;
+constexpr int kBlacklistEditX = 668;
+constexpr int kBlacklistEditY = 448;
+constexpr int kBlacklistEditWidth = 232;
+constexpr int kBlacklistEditHeight = 120;
 constexpr wchar_t kIniSection[] = L"speed roll";
 constexpr wchar_t kRunKey[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr wchar_t kRunValue[] = L"speed roll";
@@ -125,6 +151,8 @@ HICON g_appIcon = nullptr;
 HICON g_appIconSmall = nullptr;
 HFONT g_uiFont = nullptr;
 HFONT g_titleFont = nullptr;
+HFONT g_metricFont = nullptr;
+HFONT g_tinyFont = nullptr;
 HFONT g_subtitleFont = nullptr;
 HFONT g_headerFont = nullptr;
 HFONT g_hintFont = nullptr;
@@ -144,6 +172,7 @@ std::wstring g_configPath;
 std::wstring g_lastActiveProcess;
 std::wstring g_toastText;
 int g_dpi = 96;
+int g_focusedEditId = 0;
 
 // PID -> process name cache. The low-level mouse hook must never open another
 // process on the input path, so names are resolved once per PID and reused.
@@ -812,7 +841,7 @@ void UpdateTrayTooltip();
 void ToggleHyperMode() {
     g_hyperMode = !g_hyperMode;
     ResetWheelAcceleration();
-    ShowToast(g_hyperMode ? L"⚡ 滚轮：极速模式" : L"🖱️ 滚轮：普通模式");
+    ShowToast(g_hyperMode ? L"已切换到极速模式" : L"已切换到普通模式");
     UpdateTrayTooltip();
     if (g_settingsWindow) {
         InvalidateRect(g_settingsWindow, nullptr, TRUE);
@@ -846,7 +875,7 @@ bool HandleWheel(const MSLLHOOKSTRUCT& info) {
             // Uses the cached top-level foreground window instead of a
             // WindowFromPoint lookup inside the hook callback.
             StartDocumentExtremeAsync(direction > 0, g_currentForegroundWindow);
-            ShowToast(direction > 0 ? L"⬆️ 已直达顶部" : L"⬇️ 已直达底部");
+            ShowToast(direction > 0 ? L"已直达顶部" : L"已直达底部");
         }
         ResetWheelAcceleration();
         return true;
@@ -1213,10 +1242,18 @@ void CreateFonts() {
     g_uiFont = CreateFontW(-MulDiv(10, g_dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, family);
-    g_titleFont = CreateFontW(-MulDiv(21, g_dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,
+    g_titleFont = CreateFontW(-MulDiv(18, g_dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,
                               FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                               DEFAULT_PITCH | FF_DONTCARE, family);
+    g_metricFont = CreateFontW(-MulDiv(16, g_dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,
+                               FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                               DEFAULT_PITCH | FF_DONTCARE, family);
+    g_tinyFont = CreateFontW(-MulDiv(8, g_dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE,
+                             FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                             CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                             DEFAULT_PITCH | FF_DONTCARE, family);
     g_subtitleFont = CreateFontW(-MulDiv(9, g_dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE,
                                  FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                  CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
@@ -1232,7 +1269,7 @@ void CreateFonts() {
                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                               CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, family);
     g_cardBrush = CreateSolidBrush(RGB(255, 255, 255));
-    g_editBrush = CreateSolidBrush(RGB(248, 250, 253));
+    g_editBrush = CreateSolidBrush(RGB(255, 255, 255));
 }
 
 void DeleteFonts() {
@@ -1243,6 +1280,14 @@ void DeleteFonts() {
     if (g_titleFont) {
         DeleteObject(g_titleFont);
         g_titleFont = nullptr;
+    }
+    if (g_metricFont) {
+        DeleteObject(g_metricFont);
+        g_metricFont = nullptr;
+    }
+    if (g_tinyFont) {
+        DeleteObject(g_tinyFont);
+        g_tinyFont = nullptr;
     }
     if (g_subtitleFont) {
         DeleteObject(g_subtitleFont);
@@ -1287,16 +1332,16 @@ LRESULT CALLBACK ToastWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
             HDC dc = BeginPaint(window, &paint);
             RECT client{};
             GetClientRect(window, &client);
-            HBRUSH background = CreateSolidBrush(RGB(32, 32, 32));
+            HBRUSH background = CreateSolidBrush(RGB(15, 23, 42));
             FillRect(dc, &client, background);
             DeleteObject(background);
             RECT accent{0, 0, Scale(3), client.bottom};
-            HBRUSH accentBrush = CreateSolidBrush(RGB(47, 107, 255));
+            HBRUSH accentBrush = CreateSolidBrush(RGB(29, 78, 216));
             FillRect(dc, &accent, accentBrush);
             DeleteObject(accentBrush);
 
             SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, RGB(250, 250, 250));
+            SetTextColor(dc, RGB(248, 250, 252));
             HGDIOBJ oldFont = SelectObject(dc, g_toastFont ? g_toastFont : GetStockObject(DEFAULT_GUI_FONT));
             RECT textRect = client;
             textRect.left += Scale(14);
@@ -1429,6 +1474,7 @@ void ShowSettingsWindow() {
     if (!g_settingsWindow) {
         return;
     }
+    g_focusedEditId = 0;
     RefreshSettingsControls();
     ShowWindow(g_settingsWindow, SW_SHOWNORMAL);
     InvalidateRect(g_settingsWindow, nullptr, TRUE);
@@ -1522,7 +1568,7 @@ void SaveSettingsFromUI() {
     ShowWindow(g_settingsWindow, SW_HIDE);
 
     if (autoStartOk) {
-        ShowToast(L"✅ 配置已保存并生效");
+        ShowToast(L"配置已保存并生效");
     } else {
         wchar_t warning[128]{};
         std::swprintf(warning, _countof(warning),
@@ -1566,9 +1612,9 @@ bool CreateSettingsTooltip(HWND parent) {
     }
     SendMessageW(g_tooltipWindow, TTM_SETMAXTIPWIDTH, 0, Scale(460));
     SendMessageW(g_tooltipWindow, TTM_SETDELAYTIME, TTDT_INITIAL, 400);
-    SendMessageW(g_tooltipWindow, TTM_SETTIPBKCOLOR, static_cast<WPARAM>(RGB(32, 36, 43)), 0);
+    SendMessageW(g_tooltipWindow, TTM_SETTIPBKCOLOR, static_cast<WPARAM>(RGB(15, 23, 42)), 0);
     SendMessageW(g_tooltipWindow, TTM_SETTIPTEXTCOLOR,
-                 static_cast<WPARAM>(RGB(245, 247, 250)), 0);
+                 static_cast<WPARAM>(RGB(248, 250, 252)), 0);
     SendMessageW(g_tooltipWindow, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
     SendMessageW(g_tooltipWindow, TTM_ACTIVATE, TRUE, 0);
     return true;
@@ -1590,22 +1636,31 @@ void AddTooltip(HWND parent, HWND control, const wchar_t* text) {
 
 }
 
-void CreateLabeledEdit(HWND parent, const wchar_t* label, const wchar_t* value, int x, int y,
-                       int labelWidth, int editX, int editWidth, int controlId,
-                       const wchar_t* tooltipText) {
+void CreateField(HWND parent, const wchar_t* label, const wchar_t* key,
+                 const wchar_t* value, int x, int y, int width, int controlId,
+                 const wchar_t* tooltipText) {
     HWND labelWindow = CreateWindowExW(
-        0, L"STATIC", label,
-        WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOTIFY,
-        Scale(x), Scale(y), Scale(labelWidth), Scale(kRowHeight), parent, nullptr,
-        g_instance, nullptr);
+        0, L"STATIC", label, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOTIFY,
+        Scale(x), Scale(y), Scale(width), Scale(14), parent, nullptr, g_instance,
+        nullptr);
+    HWND keyWindow = CreateWindowExW(
+        0, L"STATIC", key, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOTIFY,
+        Scale(x), Scale(y + 15), Scale(width), Scale(11), parent,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(controlId + 1000)), g_instance,
+        nullptr);
     HWND editWindow = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", value,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_LEFT,
-        Scale(editX), Scale(y), Scale(editWidth), Scale(kRowHeight), parent,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(controlId)), g_instance, nullptr);
+        Scale(x), Scale(y + kFieldEditOffset), Scale(width), Scale(kFieldEditHeight),
+        parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(controlId)), g_instance,
+        nullptr);
     if (labelWindow) {
         SendMessageW(labelWindow, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
         AddTooltip(parent, labelWindow, tooltipText);
+    }
+    if (keyWindow) {
+        SendMessageW(keyWindow, WM_SETFONT, reinterpret_cast<WPARAM>(g_tinyFont), TRUE);
+        AddTooltip(parent, keyWindow, tooltipText);
     }
     if (editWindow) {
         SendMessageW(editWindow, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
@@ -1623,147 +1678,534 @@ void FillColorRect(HDC dc, int left, int top, int right, int bottom, COLORREF co
     DeleteObject(brush);
 }
 
-void PaintSettingsBackground(HDC dc, const RECT& client) {
-    FillColorRect(dc, client.left, client.top, client.right, client.bottom, RGB(238, 242, 248));
+RECT GetEditFocusRect(int id) {
+    int x = 0;
+    int y = 0;
+    int w = kFieldWidth;
+    int h = kFieldEditHeight;
+    switch (id) {
+        case IDC_EDIT_FAST:
+            x = kFieldX1;
+            y = kFieldY1 + kFieldEditOffset;
+            break;
+        case IDC_EDIT_MIN_TICKS:
+            x = kFieldX2;
+            y = kFieldY1 + kFieldEditOffset;
+            break;
+        case IDC_EDIT_MAX:
+            x = kFieldX1;
+            y = kFieldY2 + kFieldEditOffset;
+            break;
+        case IDC_EDIT_CURVE:
+            x = kFieldX2;
+            y = kFieldY2 + kFieldEditOffset;
+            break;
+        case IDC_EDIT_HORIZONTAL:
+            x = kFieldX1;
+            y = kFieldY3 + kFieldEditOffset;
+            break;
+        case IDC_EDIT_BLACKLIST:
+            x = kBlacklistEditX;
+            y = kBlacklistEditY;
+            w = kBlacklistEditWidth;
+            h = kBlacklistEditHeight;
+            break;
+        default:
+            return RECT{};
+    }
+    return RECT{Scale(x - 1), Scale(y - 1), Scale(x + w + 1), Scale(y + h + 1)};
+}
 
-    const int header = Scale(kHeaderHeight);
-    for (int y = 0; y < header; ++y) {
-        const double t = static_cast<double>(y) / std::max(1, header - 1);
-        const COLORREF color = RGB(
-            static_cast<int>(42.0 + (90.0 - 42.0) * t),
-            static_cast<int>(99.0 + (142.0 - 99.0) * t),
-            static_cast<int>(246.0 + (255.0 - 246.0) * t));
-        FillColorRect(dc, 0, y, client.right, y + 1, color);
+constexpr COLORREF kCanvas = RGB(248, 250, 252);
+constexpr COLORREF kSidebar = RGB(15, 23, 42);
+constexpr COLORREF kPanel = RGB(255, 255, 255);
+constexpr COLORREF kBorder = RGB(226, 232, 240);
+constexpr COLORREF kPrimary = RGB(29, 78, 216);
+constexpr COLORREF kPrimarySoft = RGB(239, 246, 255);
+constexpr COLORREF kPrimaryBorder = RGB(219, 234, 254);
+constexpr COLORREF kText = RGB(15, 23, 42);
+constexpr COLORREF kBody = RGB(51, 65, 85);
+constexpr COLORREF kMuted = RGB(100, 116, 139);
+constexpr COLORREF kSubtle = RGB(148, 163, 184);
+constexpr COLORREF kSuccess = RGB(34, 197, 94);
+
+void DrawPanel(HDC dc, int left, int top, int right, int bottom, int radius,
+               COLORREF fill, COLORREF border) {
+    HBRUSH brush = CreateSolidBrush(fill);
+    HPEN pen = border == CLR_INVALID ? nullptr : CreatePen(PS_SOLID, 1, border);
+    HGDIOBJ oldBrush = SelectObject(dc, brush);
+    HGDIOBJ oldPen = SelectObject(dc, pen ? pen : GetStockObject(NULL_PEN));
+    RoundRect(dc, left, top, right, bottom, radius, radius);
+    SelectObject(dc, oldPen);
+    SelectObject(dc, oldBrush);
+    if (pen) {
+        DeleteObject(pen);
+    }
+    DeleteObject(brush);
+}
+
+void DrawTextLine(HDC dc, HFONT font, COLORREF color, const std::wstring& text,
+                  const RECT& rect, UINT flags) {
+    RECT target = rect;
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, color);
+    HGDIOBJ oldFont = SelectObject(dc, font);
+    DrawTextW(dc, text.c_str(), -1, &target, flags | DT_NOPREFIX);
+    SelectObject(dc, oldFont);
+}
+
+void DrawGlyphIcon(HDC dc, int x, int y, int size, int kind, COLORREF color) {
+    const double s = static_cast<double>(size) / 24.0;
+    auto X = [&](double value) { return x + static_cast<int>(std::lround(value * s)); };
+    auto Y = [&](double value) { return y + static_cast<int>(std::lround(value * s)); };
+
+    HPEN pen = CreatePen(PS_SOLID, std::max(1, Scale(1)), color);
+    HBRUSH brush = CreateSolidBrush(color);
+    HGDIOBJ oldPen = SelectObject(dc, pen);
+    HGDIOBJ oldBrush = SelectObject(dc, brush);
+    SetBkMode(dc, TRANSPARENT);
+
+    switch (kind) {
+        case 0: {  // acceleration
+            POINT points[6] = {{X(13), Y(3)},  {X(7), Y(13)},  {X(11), Y(13)},
+                               {X(9), Y(21)},  {X(18), Y(10)}, {X(13), Y(10)}};
+            Polygon(dc, points, 6);
+            break;
+        }
+        case 1: {  // sliders
+            SelectObject(dc, GetStockObject(NULL_BRUSH));
+            MoveToEx(dc, X(4), Y(6), nullptr);
+            LineTo(dc, X(20), Y(6));
+            MoveToEx(dc, X(4), Y(12), nullptr);
+            LineTo(dc, X(20), Y(12));
+            MoveToEx(dc, X(4), Y(18), nullptr);
+            LineTo(dc, X(20), Y(18));
+            SelectObject(dc, brush);
+            Ellipse(dc, X(7), Y(4), X(12), Y(9));
+            Ellipse(dc, X(13), Y(10), X(18), Y(15));
+            Ellipse(dc, X(9), Y(16), X(14), Y(21));
+            break;
+        }
+        case 2: {  // shield
+            SelectObject(dc, GetStockObject(NULL_BRUSH));
+            POINT points[6] = {{X(12), Y(3)},  {X(20), Y(6)},  {X(19), Y(14)},
+                               {X(12), Y(21)}, {X(5), Y(14)},  {X(4), Y(6)}};
+            Polygon(dc, points, 6);
+            break;
+        }
+        case 3: {  // list
+            SelectObject(dc, brush);
+            Ellipse(dc, X(4), Y(5), X(7), Y(8));
+            Ellipse(dc, X(4), Y(11), X(7), Y(14));
+            Ellipse(dc, X(4), Y(17), X(7), Y(20));
+            SelectObject(dc, GetStockObject(NULL_BRUSH));
+            MoveToEx(dc, X(10), Y(6), nullptr);
+            LineTo(dc, X(20), Y(6));
+            MoveToEx(dc, X(10), Y(12), nullptr);
+            LineTo(dc, X(20), Y(12));
+            MoveToEx(dc, X(10), Y(18), nullptr);
+            LineTo(dc, X(20), Y(18));
+            break;
+        }
+        case 4: {  // mode toggle
+            SelectObject(dc, GetStockObject(NULL_BRUSH));
+            RoundRect(dc, X(3), Y(7), X(21), Y(17), X(10) - X(0), X(10) - X(0));
+            SelectObject(dc, brush);
+            Ellipse(dc, X(14), Y(9), X(19), Y(15));
+            break;
+        }
+        case 5: {  // threshold gauge
+            SelectObject(dc, GetStockObject(NULL_BRUSH));
+            Arc(dc, X(3), Y(4), X(21), Y(22), X(21), Y(13), X(3), Y(13));
+            MoveToEx(dc, X(12), Y(14), nullptr);
+            LineTo(dc, X(17), Y(8));
+            SelectObject(dc, brush);
+            Ellipse(dc, X(10), Y(12), X(14), Y(16));
+            break;
+        }
+        case 6: {  // max multiplier
+            SelectObject(dc, GetStockObject(NULL_BRUSH));
+            MoveToEx(dc, X(12), Y(21), nullptr);
+            LineTo(dc, X(12), Y(5));
+            MoveToEx(dc, X(6), Y(11), nullptr);
+            LineTo(dc, X(12), Y(5));
+            LineTo(dc, X(18), Y(11));
+            break;
+        }
+        case 7: {  // mouse wheel
+            SelectObject(dc, GetStockObject(NULL_BRUSH));
+            RoundRect(dc, X(7), Y(3), X(17), Y(21), X(6), X(6));
+            MoveToEx(dc, X(12), Y(7), nullptr);
+            LineTo(dc, X(12), Y(12));
+            break;
+        }
+        default:
+            break;
     }
 
-    // Subtle decorative arcs in the header.
-    HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
-    HPEN arcPen1 = CreatePen(PS_SOLID, std::max(1, Scale(1)), RGB(105, 154, 255));
-    HPEN arcPen2 = CreatePen(PS_SOLID, std::max(1, Scale(1)), RGB(128, 171, 255));
-    HGDIOBJ oldPen = SelectObject(dc, arcPen1);
-    Ellipse(dc, Scale(470), Scale(-70), Scale(700), Scale(160));
-    SelectObject(dc, arcPen2);
-    Ellipse(dc, Scale(540), Scale(-145), Scale(780), Scale(95));
+    SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);
+    DeleteObject(pen);
+    DeleteObject(brush);
+}
 
-    DrawIconEx(dc, Scale(24), Scale(22), g_appIcon, Scale(44), Scale(44), 0, nullptr,
+void DrawIconTile(HDC dc, int x, int y, int size, int kind) {
+    DrawPanel(dc, x, y, x + size, y + size, Scale(7), kPrimarySoft, kPrimaryBorder);
+    DrawGlyphIcon(dc, x + Scale(4), y + Scale(4), size - Scale(8), kind, kPrimary);
+}
+
+void DrawCard(HDC dc, int left, int top, int right, int bottom) {
+    DrawPanel(dc, left, top, right, bottom, Scale(14), kPanel, kBorder);
+}
+
+void DrawSummaryTile(HDC dc, int left, int top, int width, int height, int kind,
+                     const std::wstring& label, const std::wstring& value,
+                     const std::wstring& detail) {
+    DrawPanel(dc, left, top, left + width, top + height, Scale(12), kPanel, kBorder);
+    DrawIconTile(dc, left + Scale(14), top + Scale(14), Scale(30), kind);
+
+    const int textLeft = left + Scale(54);
+    const int textWidth = width - Scale(64);
+    RECT labelRect{textLeft, top + Scale(10), textLeft + textWidth, top + Scale(28)};
+    DrawTextLine(dc, g_hintFont, kMuted, label, labelRect,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+    RECT valueRect{textLeft, top + Scale(26), textLeft + textWidth, top + Scale(52)};
+    DrawTextLine(dc, g_metricFont, kind == 4 ? kPrimary : kText, value, valueRect,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+    RECT detailRect{textLeft, top + Scale(54), textLeft + textWidth, top + Scale(70)};
+    DrawTextLine(dc, g_tinyFont, kMuted, detail, detailRect,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+}
+
+void DrawAccelerationCurve(HDC dc, int left, int top, int right, int bottom,
+                           double maxMultiplier, double curvePower) {
+    DrawPanel(dc, left, top, right, bottom, Scale(10), kCanvas, kBorder);
+
+    const std::wstring title = L"加速曲线";
+    RECT titleRect{left + Scale(12), top + Scale(5), right - Scale(90), top + Scale(19)};
+    DrawTextLine(dc, g_tinyFont, kMuted, title, titleRect,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+
+    const std::wstring axis = L"1×  →  " + FormatDouble(maxMultiplier) + L"×";
+    RECT axisRect{right - Scale(104), top + Scale(5), right - Scale(12), top + Scale(19)};
+    DrawTextLine(dc, g_tinyFont, kMuted, axis, axisRect,
+                 DT_RIGHT | DT_TOP | DT_SINGLELINE);
+
+    const int chartLeft = left + Scale(12);
+    const int chartTop = top + Scale(22);
+    const int chartRight = right - Scale(12);
+    const int chartBottom = bottom - Scale(8);
+    if (chartRight <= chartLeft || chartBottom <= chartTop) {
+        return;
+    }
+
+    HPEN gridPen = CreatePen(PS_SOLID, 1, kBorder);
+    HGDIOBJ oldPen = SelectObject(dc, gridPen);
+    for (int i = 0; i <= 3; ++i) {
+        const int y = chartTop + (chartBottom - chartTop) * i / 3;
+        MoveToEx(dc, chartLeft, y, nullptr);
+        LineTo(dc, chartRight, y);
+    }
+    for (int i = 0; i <= 4; ++i) {
+        const int x = chartLeft + (chartRight - chartLeft) * i / 4;
+        MoveToEx(dc, x, chartTop, nullptr);
+        LineTo(dc, x, chartBottom);
+    }
+    SelectObject(dc, oldPen);
+    DeleteObject(gridPen);
+
+    const double maximum = std::max(1.0, maxMultiplier);
+    const int steps = 48;
+    std::vector<POINT> points;
+    points.reserve(steps);
+    for (int i = 0; i < steps; ++i) {
+        const double t = static_cast<double>(i) / (steps - 1);
+        const double normalized = std::pow(t, std::max(0.1, curvePower));
+        const int x = chartLeft + static_cast<int>(std::lround(t * (chartRight - chartLeft)));
+        const int y = chartBottom - static_cast<int>(
+            std::lround(normalized * (chartBottom - chartTop)));
+        points.push_back(POINT{x, y});
+    }
+
+    if (maximum > 1.0) {
+        std::vector<POINT> filled;
+        filled.reserve(points.size() + 2);
+        filled.push_back(POINT{chartLeft, chartBottom});
+        filled.insert(filled.end(), points.begin(), points.end());
+        filled.push_back(POINT{chartRight, chartBottom});
+        HBRUSH fillBrush = CreateSolidBrush(RGB(219, 234, 254));
+        HGDIOBJ oldBrush = SelectObject(dc, fillBrush);
+        HGDIOBJ oldFillPen = SelectObject(dc, GetStockObject(NULL_PEN));
+        Polygon(dc, filled.data(), static_cast<int>(filled.size()));
+        SelectObject(dc, oldFillPen);
+        SelectObject(dc, oldBrush);
+        DeleteObject(fillBrush);
+    }
+
+    HPEN curvePen = CreatePen(PS_SOLID, std::max(1, Scale(2)), kPrimary);
+    oldPen = SelectObject(dc, curvePen);
+    Polyline(dc, points.data(), static_cast<int>(points.size()));
+    SelectObject(dc, oldPen);
+    DeleteObject(curvePen);
+
+    HBRUSH dotBrush = CreateSolidBrush(kPrimary);
+    HGDIOBJ oldBrush = SelectObject(dc, dotBrush);
+    HGDIOBJ oldDotPen = SelectObject(dc, GetStockObject(NULL_PEN));
+    const POINT& end = points.back();
+    Ellipse(dc, end.x - Scale(2), end.y - Scale(2), end.x + Scale(2), end.y + Scale(2));
+    SelectObject(dc, oldDotPen);
+    SelectObject(dc, oldBrush);
+    DeleteObject(dotBrush);
+}
+
+void DrawSidebar(HDC dc, const RECT& client) {
+    const int width = Scale(kSidebarWidth);
+    FillColorRect(dc, 0, 0, width, client.bottom, kSidebar);
+    FillColorRect(dc, width - 1, 0, width, client.bottom, RGB(30, 41, 59));
+
+    DrawIconEx(dc, Scale(24), Scale(22), g_appIcon, Scale(40), Scale(40), 0, nullptr,
                DI_NORMAL);
 
-    SetBkMode(dc, TRANSPARENT);
-    HGDIOBJ oldFont = SelectObject(dc, g_titleFont);
-    SetTextColor(dc, RGB(255, 255, 255));
-    RECT titleRect{Scale(82), Scale(12), Scale(500), Scale(52)};
-    DrawTextW(dc, L"speed roll", -1, &titleRect,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    RECT brandRect{Scale(74), Scale(14), Scale(196), Scale(42)};
+    DrawTextLine(dc, g_headerFont, RGB(255, 255, 255), L"speed roll", brandRect,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    RECT taglineRect{Scale(74), Scale(42), Scale(196), Scale(58)};
+    DrawTextLine(dc, g_tinyFont, kSubtle, L"滚轮增强", taglineRect,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-    SelectObject(dc, g_subtitleFont);
-    SetTextColor(dc, RGB(222, 235, 255));
-    RECT subtitleRect{Scale(84), Scale(54), Scale(500), Scale(80)};
-    DrawTextW(dc, L"轻量滚轮增强 · 参数设置", -1, &subtitleRect,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    FillColorRect(dc, Scale(20), Scale(88), Scale(190), Scale(89), RGB(30, 41, 59));
 
-    // Mode badge.
-    RECT badgeRect{Scale(520), Scale(30), Scale(624), Scale(60)};
-    HBRUSH badgeBrush = CreateSolidBrush(RGB(255, 255, 255));
-    HGDIOBJ badgeOldBrush = SelectObject(dc, badgeBrush);
-    HGDIOBJ badgeOldPen = SelectObject(dc, GetStockObject(NULL_PEN));
-    RoundRect(dc, badgeRect.left, badgeRect.top, badgeRect.right, badgeRect.bottom,
-              Scale(16), Scale(16));
-    SelectObject(dc, g_uiFont);
-    SetTextColor(dc, RGB(47, 107, 255));
-    DrawTextW(dc, g_hyperMode ? L"极速模式" : L"普通模式", -1, &badgeRect,
-              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-    SelectObject(dc, badgeOldPen);
-    SelectObject(dc, badgeOldBrush);
-    DeleteObject(badgeBrush);
-
-    // Soft card shadow and card.
-    RECT shadowRect{Scale(kCardLeft + 2), Scale(kCardTop + 2), Scale(kCardRight + 2),
-                    Scale(kCardBottom + 4)};
-    HBRUSH shadowBrush = CreateSolidBrush(RGB(224, 231, 242));
-    HGDIOBJ shadowOldBrush = SelectObject(dc, shadowBrush);
-    HGDIOBJ shadowOldPen = SelectObject(dc, GetStockObject(NULL_PEN));
-    RoundRect(dc, shadowRect.left, shadowRect.top, shadowRect.right, shadowRect.bottom,
-              Scale(18), Scale(18));
-    SelectObject(dc, shadowOldPen);
-    SelectObject(dc, shadowOldBrush);
-    DeleteObject(shadowBrush);
-
-    RECT cardRect{Scale(kCardLeft), Scale(kCardTop), Scale(kCardRight), Scale(kCardBottom)};
-    HPEN cardPen = CreatePen(PS_SOLID, 1, RGB(220, 227, 240));
-    HGDIOBJ cardOldBrush = SelectObject(dc, g_cardBrush);
-    HGDIOBJ cardOldPen = SelectObject(dc, cardPen);
-    RoundRect(dc, cardRect.left, cardRect.top, cardRect.right, cardRect.bottom, Scale(18),
-              Scale(18));
-    SelectObject(dc, cardOldPen);
-    SelectObject(dc, cardOldBrush);
-    DeleteObject(cardPen);
-
-    FillColorRect(dc, Scale(24), Scale(102), Scale(28), Scale(120), RGB(47, 107, 255));
-
-    SelectObject(dc, g_headerFont);
-    SetTextColor(dc, RGB(27, 35, 50));
-    RECT sectionRect{Scale(36), Scale(94), Scale(330), Scale(120)};
-    DrawTextW(dc, L"滚轮加速参数", -1, &sectionRect,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-    // Highlight the mode-switch chord instead of using a faint hint.
-    RECT modePill{Scale(272), Scale(90), Scale(604), Scale(120)};
-    HBRUSH modePillBrush = CreateSolidBrush(RGB(47, 107, 255));
-    HPEN modePillPen = CreatePen(PS_SOLID, 1, RGB(91, 143, 255));
-    HGDIOBJ modeOldBrush = SelectObject(dc, modePillBrush);
-    HGDIOBJ modeOldPen = SelectObject(dc, modePillPen);
-    RoundRect(dc, modePill.left, modePill.top, modePill.right, modePill.bottom,
-              Scale(15), Scale(15));
-    SelectObject(dc, modeOldPen);
-    SelectObject(dc, modeOldBrush);
-    DeleteObject(modePillPen);
-    DeleteObject(modePillBrush);
-
-    SelectObject(dc, g_uiFont);
-    SetTextColor(dc, RGB(255, 255, 255));
-    DrawTextW(dc, L"前进+后退键同时按：切换极速模式/普通模式", -1, &modePill,
-              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-    // Side-button action guide: keep the two wheel gestures explicit.
-    RECT actionPanel{Scale(36), Scale(122), Scale(604), Scale(178)};
-    HBRUSH actionBrush = CreateSolidBrush(RGB(242, 247, 255));
-    HPEN actionPen = CreatePen(PS_SOLID, 1, RGB(220, 232, 255));
-    HGDIOBJ actionOldBrush = SelectObject(dc, actionBrush);
-    HGDIOBJ actionOldPen = SelectObject(dc, actionPen);
-    RoundRect(dc, actionPanel.left, actionPanel.top, actionPanel.right,
-              actionPanel.bottom, Scale(12), Scale(12));
-    SelectObject(dc, actionOldPen);
-    SelectObject(dc, actionOldBrush);
-    DeleteObject(actionPen);
-    DeleteObject(actionBrush);
-
-    FillColorRect(dc, Scale(320), Scale(132), Scale(321), Scale(168), RGB(220, 232, 255));
-
-    SelectObject(dc, g_uiFont);
-    SetTextColor(dc, RGB(47, 107, 255));
-    RECT forwardTitle{Scale(52), Scale(127), Scale(306), Scale(147)};
-    DrawTextW(dc, L"前进键 + 滚轮 ↑ / ↓", -1, &forwardTitle,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-    RECT backTitle{Scale(336), Scale(127), Scale(590), Scale(147)};
-    DrawTextW(dc, L"后退键 + 滚轮 ← / →", -1, &backTitle,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-    SelectObject(dc, g_hintFont);
-    SetTextColor(dc, RGB(112, 122, 138));
-    RECT forwardDesc{Scale(52), Scale(149), Scale(306), Scale(169)};
-    DrawTextW(dc, L"直达文档 / 表格顶部或底部", -1, &forwardDesc,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-    RECT backDesc{Scale(336), Scale(149), Scale(590), Scale(169)};
-    DrawTextW(dc, L"左右横向滚动", -1, &backDesc,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-    FillColorRect(dc, Scale(36), Scale(184), Scale(604), Scale(185), RGB(236, 240, 247));
-
-    SelectObject(dc, oldFont);
-    DeleteObject(arcPen1);
-    DeleteObject(arcPen2);
+    DrawPanel(dc, Scale(20), Scale(104), Scale(190), Scale(196), Scale(12),
+              RGB(17, 28, 51), RGB(30, 41, 59));
+    RECT modeLabel{Scale(34), Scale(112), Scale(176), Scale(128)};
+    DrawTextLine(dc, g_tinyFont, kSubtle, L"当前模式", modeLabel,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+    RECT modeValue{Scale(34), Scale(128), Scale(176), Scale(162)};
+    DrawTextLine(dc, g_titleFont, RGB(255, 255, 255),
+                 g_hyperMode ? L"极速" : L"普通", modeValue,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+    HBRUSH statusBrush = CreateSolidBrush(kSuccess);
+    HGDIOBJ oldBrush = SelectObject(dc, statusBrush);
+    HGDIOBJ oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
+    Ellipse(dc, Scale(164), Scale(116), Scale(172), Scale(124));
+    SelectObject(dc, oldPen);
     SelectObject(dc, oldBrush);
+    DeleteObject(statusBrush);
+    RECT modeHint{Scale(34), Scale(166), Scale(176), Scale(182)};
+    DrawTextLine(dc, g_tinyFont, kSubtle, L"前进 + 后退 切换", modeHint,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+
+    RECT tipsTitle{Scale(20), Scale(218), Scale(190), Scale(236)};
+    DrawTextLine(dc, g_uiFont, RGB(226, 232, 240), L"快速提示", tipsTitle,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+    const wchar_t* tips[] = {L"Ctrl / Alt 强制 1x", L"侧键可随时切换模式",
+                             L"黑名单按进程生效"};
+    int tipY = 244;
+    for (const wchar_t* tip : tips) {
+        HBRUSH tipBrush = CreateSolidBrush(RGB(96, 165, 250));
+        HGDIOBJ tipOldBrush = SelectObject(dc, tipBrush);
+        HGDIOBJ tipOldPen = SelectObject(dc, GetStockObject(NULL_PEN));
+        Ellipse(dc, Scale(20), Scale(tipY + 4), Scale(24), Scale(tipY + 8));
+        SelectObject(dc, tipOldPen);
+        SelectObject(dc, tipOldBrush);
+        DeleteObject(tipBrush);
+        RECT tipRect{Scale(32), Scale(tipY), Scale(190), Scale(tipY + 16)};
+        DrawTextLine(dc, g_tinyFont, kSubtle, tip, tipRect,
+                     DT_LEFT | DT_TOP | DT_SINGLELINE);
+        tipY += 26;
+    }
+
+    FillColorRect(dc, Scale(20), Scale(330), Scale(190), Scale(331), RGB(30, 41, 59));
+    RECT configLabel{Scale(20), Scale(346), Scale(190), Scale(360)};
+    DrawTextLine(dc, g_tinyFont, kSubtle, L"配置文件", configLabel,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+    RECT configValue{Scale(20), Scale(360), Scale(190), Scale(376)};
+    DrawTextLine(dc, g_tinyFont, RGB(203, 213, 225), L"config.ini", configValue,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+
+    HPEN wheelPen = CreatePen(PS_SOLID, 1, RGB(30, 41, 59));
+    HGDIOBJ wheelOldPen = SelectObject(dc, wheelPen);
+    HGDIOBJ wheelOldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    Ellipse(dc, Scale(40), Scale(400), Scale(160), Scale(520));
+    RoundRect(dc, Scale(92), Scale(432), Scale(108), Scale(488), Scale(8), Scale(8));
+    SelectObject(dc, wheelOldBrush);
+    SelectObject(dc, wheelOldPen);
+    DeleteObject(wheelPen);
+
+    FillColorRect(dc, Scale(20), Scale(600), Scale(190), Scale(601), RGB(30, 41, 59));
+    HBRUSH runBrush = CreateSolidBrush(kSuccess);
+    HGDIOBJ runOldBrush = SelectObject(dc, runBrush);
+    HGDIOBJ runOldPen = SelectObject(dc, GetStockObject(NULL_PEN));
+    Ellipse(dc, Scale(24), Scale(622), Scale(32), Scale(630));
+    SelectObject(dc, runOldPen);
+    SelectObject(dc, runOldBrush);
+    DeleteObject(runBrush);
+    RECT runningRect{Scale(38), Scale(616), Scale(180), Scale(634)};
+    DrawTextLine(dc, g_tinyFont, kSubtle, L"运行中", runningRect,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    RECT versionRect{Scale(24), Scale(646), Scale(180), Scale(664)};
+    DrawTextLine(dc, g_tinyFont, kSubtle, L"v1.0.4 · Win32", versionRect,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+}
+
+void DrawPageHeader(HDC dc, const RECT& client) {
+    FillColorRect(dc, Scale(kSidebarWidth), 0, client.right, Scale(kPageHeaderHeight),
+                  kCanvas);
+    FillColorRect(dc, Scale(kSidebarWidth), Scale(kPageHeaderHeight - 1), client.right,
+                  Scale(kPageHeaderHeight), kBorder);
+
+    RECT titleRect{Scale(234), Scale(8), Scale(720), Scale(42)};
+    DrawTextLine(dc, g_titleFont, kText, L"偏好设置", titleRect,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    RECT subtitleRect{Scale(236), Scale(43), Scale(720), Scale(64)};
+    DrawTextLine(dc, g_hintFont, kMuted, L"调整滚轮加速、侧键行为与例外程序",
+                 subtitleRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    DrawPanel(dc, Scale(760), Scale(24), Scale(916), Scale(52), Scale(14), kPanel,
+              kBorder);
+    HBRUSH dotBrush = CreateSolidBrush(kSuccess);
+    HGDIOBJ oldBrush = SelectObject(dc, dotBrush);
+    HGDIOBJ oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
+    Ellipse(dc, Scale(772), Scale(35), Scale(780), Scale(43));
+    SelectObject(dc, oldPen);
+    SelectObject(dc, oldBrush);
+    DeleteObject(dotBrush);
+    RECT statusRect{Scale(786), Scale(28), Scale(906), Scale(48)};
+    DrawTextLine(dc, g_hintFont, kBody, L"配置已加载", statusRect,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+}
+
+void DrawActionStrip(HDC dc) {
+    DrawPanel(dc, Scale(234), Scale(186), Scale(916), Scale(250), Scale(12), kPanel,
+              kBorder);
+    DrawPanel(dc, Scale(690), Scale(186), Scale(916), Scale(250), Scale(12), kPrimary,
+              kPrimary);
+    FillColorRect(dc, Scale(470), Scale(198), Scale(471), Scale(238), kBorder);
+
+    const struct {
+        int x;
+        const wchar_t* title;
+        const wchar_t* detail;
+    } items[] = {
+        {252, L"前进键 + 滚轮", L"到顶 / 到底"},
+        {480, L"后退键 + 滚轮", L"左右横向滚动"},
+    };
+    for (const auto& item : items) {
+        RECT titleRect{Scale(item.x), Scale(196), Scale(item.x + 206), Scale(216)};
+        DrawTextLine(dc, g_uiFont, kText, item.title, titleRect,
+                     DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        RECT detailRect{Scale(item.x), Scale(216), Scale(item.x + 206), Scale(234)};
+        DrawTextLine(dc, g_tinyFont, kMuted, item.detail, detailRect,
+                     DT_LEFT | DT_TOP | DT_SINGLELINE);
+    }
+
+    RECT highlightTitle{Scale(706), Scale(196), Scale(898), Scale(216)};
+    DrawTextLine(dc, g_uiFont, RGB(255, 255, 255), L"前进 + 后退键", highlightTitle,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    RECT highlightDetail{Scale(706), Scale(216), Scale(898), Scale(234)};
+    DrawTextLine(dc, g_tinyFont, RGB(219, 234, 254), L"切换极速 / 普通模式",
+                 highlightDetail, DT_LEFT | DT_TOP | DT_SINGLELINE);
+}
+
+void PaintSettingsBackground(HDC dc, const RECT& client) {
+    FillColorRect(dc, client.left, client.top, client.right, client.bottom, kCanvas);
+    DrawSidebar(dc, client);
+    DrawPageHeader(dc, client);
+
+    const std::wstring modeValue = g_hyperMode ? L"极速" : L"普通";
+    const std::wstring thresholdValue = FormatDouble(g_config.fastThreshold) + L" ms";
+    const std::wstring maxValue = FormatDouble(g_config.maxMultiplier) + L"×";
+    const int tileTop = Scale(kSummaryTop);
+    const int tileWidth = Scale(kSummaryTileWidth);
+    const int tileHeight = Scale(kSummaryHeight);
+    const int gap = Scale(kSummaryGap);
+    const int tile1 = Scale(kContentLeft);
+    const int tile2 = tile1 + tileWidth + gap;
+    const int tile3 = tile2 + tileWidth + gap;
+    DrawSummaryTile(dc, tile1, tileTop, tileWidth, tileHeight, 4, L"当前模式", modeValue,
+                    L"侧键可切换");
+    DrawSummaryTile(dc, tile2, tileTop, tileWidth, tileHeight, 5, L"快滚阈值",
+                    thresholdValue, L"FastThreshold");
+    DrawSummaryTile(dc, tile3, tileTop, tileWidth, tileHeight, 6, L"最大倍率", maxValue,
+                    L"MaxMultiplier");
+
+    DrawActionStrip(dc);
+
+    DrawCard(dc, Scale(234), Scale(kLeftCardTop), Scale(640), Scale(kLeftCardBottom));
+    DrawCard(dc, Scale(652), Scale(kBehaviorTop), Scale(916), Scale(kBehaviorBottom));
+    DrawCard(dc, Scale(652), Scale(kBlacklistCardTop), Scale(916),
+             Scale(kBlacklistCardBottom));
+
+    DrawIconTile(dc, Scale(250), Scale(276), Scale(24), 1);
+    RECT accelTitle{Scale(282), Scale(270), Scale(620), Scale(294)};
+    DrawTextLine(dc, g_headerFont, kText, L"滚轮加速", accelTitle,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    RECT accelSubtitle{Scale(282), Scale(294), Scale(620), Scale(308)};
+    DrawTextLine(dc, g_tinyFont, kMuted, L"调整触发阈值、倍率与曲线", accelSubtitle,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+    RECT accelCount{Scale(540), Scale(278), Scale(622), Scale(294)};
+    DrawTextLine(dc, g_tinyFont, kMuted, L"5 项参数", accelCount,
+                 DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+
+    DrawIconTile(dc, Scale(668), Scale(276), Scale(24), 2);
+    RECT behaviorTitle{Scale(700), Scale(270), Scale(904), Scale(294)};
+    DrawTextLine(dc, g_headerFont, kText, L"行为与兼容", behaviorTitle,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    RECT behaviorSubtitle{Scale(700), Scale(294), Scale(904), Scale(308)};
+    DrawTextLine(dc, g_tinyFont, kMuted, L"防误触与启动选项", behaviorSubtitle,
+                 DT_LEFT | DT_TOP | DT_SINGLELINE);
+
+    DrawIconTile(dc, Scale(668), Scale(410), Scale(24), 3);
+    RECT blacklistTitle{Scale(700), Scale(404), Scale(904), Scale(428)};
+    DrawTextLine(dc, g_headerFont, kText, L"进程黑名单", blacklistTitle,
+                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    DrawAccelerationCurve(dc, Scale(252), Scale(512), Scale(622), Scale(568),
+                          g_config.maxMultiplier, g_config.curvePower);
+
+    FillColorRect(dc, Scale(kSidebarWidth), Scale(kFooterBorderY), client.right,
+                  Scale(kFooterBorderY + 1), kBorder);
+    RECT footerHint{Scale(608), Scale(616), Scale(820), Scale(638)};
+    DrawTextLine(dc, g_tinyFont, kMuted, L"保存后立即生效 · 写入 config.ini",
+                 footerHint, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    if (g_focusedEditId != 0) {
+        RECT focus = GetEditFocusRect(g_focusedEditId);
+        if (focus.right > focus.left) {
+            HPEN focusPen = CreatePen(PS_SOLID, 1, kPrimary);
+            HGDIOBJ focusOldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+            HGDIOBJ focusOldPen = SelectObject(dc, focusPen);
+            RoundRect(dc, focus.left, focus.top, focus.right, focus.bottom, Scale(3),
+                      Scale(3));
+            SelectObject(dc, focusOldPen);
+            SelectObject(dc, focusOldBrush);
+            DeleteObject(focusPen);
+            FillColorRect(dc, focus.left - Scale(4), focus.top + Scale(2),
+                          focus.left - Scale(1), focus.bottom - Scale(2), kPrimary);
+        }
+    }
+}
+
+
+LRESULT CALLBACK BlacklistTabSubclass(HWND window, UINT message, WPARAM wParam,
+                                      LPARAM lParam, UINT_PTR subclassId, DWORD_PTR) {
+    if (message == WM_GETDLGCODE) {
+        // A multiline edit normally consumes Tab. Let the dialog manager move
+        // focus instead so keyboard users can reach Save/Reset/Close.
+        return DefSubclassProc(window, message, wParam, lParam) & ~DLGC_WANTTAB;
+    }
+    if (message == WM_CHAR && wParam == VK_TAB) {
+        const BOOL shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        HWND next = GetNextDlgTabItem(GetParent(window), window, shift);
+        if (next) {
+            SetFocus(next);
+        }
+        return 0;
+    }
+    if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(window, BlacklistTabSubclass, subclassId);
+    }
+    return DefSubclassProc(window, message, wParam, lParam);
 }
 
 LRESULT CALLBACK FlatButtonSubclass(HWND window, UINT message, WPARAM wParam, LPARAM lParam,
@@ -1806,21 +2248,21 @@ void DrawOwnerButton(const DRAWITEMSTRUCT* item) {
     const bool pressed = (item->itemState & ODS_SELECTED) != 0;
     const bool focused = (item->itemState & ODS_FOCUS) != 0;
 
-    COLORREF fill = RGB(238, 242, 249);
-    COLORREF border = RGB(214, 222, 236);
-    COLORREF text = RGB(48, 58, 74);
+    COLORREF fill = RGB(241, 245, 249);
+    COLORREF border = RGB(226, 232, 240);
+    COLORREF text = RGB(51, 65, 85);
     if (id == IDC_BTN_SAVE) {
-        fill = pressed ? RGB(35, 85, 220) : (hot ? RGB(70, 124, 255) : RGB(47, 107, 255));
+        fill = pressed ? RGB(30, 64, 175) : (hot ? RGB(37, 99, 235) : RGB(29, 78, 216));
         border = fill;
         text = RGB(255, 255, 255);
     } else if (id == IDC_BTN_CLOSE) {
-        fill = pressed ? RGB(234, 239, 247) : (hot ? RGB(244, 247, 252) : RGB(255, 255, 255));
-        border = RGB(220, 227, 238);
-        text = RGB(92, 103, 120);
+        fill = pressed ? RGB(241, 245, 249) : (hot ? RGB(248, 250, 252) : RGB(255, 255, 255));
+        border = RGB(226, 232, 240);
+        text = RGB(71, 85, 105);
     } else if (hot) {
-        fill = pressed ? RGB(218, 227, 241) : RGB(229, 235, 246);
+        fill = pressed ? RGB(203, 213, 225) : RGB(226, 232, 240);
     } else if (pressed) {
-        fill = RGB(218, 227, 241);
+        fill = RGB(203, 213, 225);
     }
 
     HBRUSH brush = CreateSolidBrush(fill);
@@ -1846,9 +2288,41 @@ void DrawOwnerButton(const DRAWITEMSTRUCT* item) {
 
     if (focused) {
         RECT focusRect = item->rcItem;
-        InflateRect(&focusRect, -Scale(4), -Scale(4));
-        DrawFocusRect(item->hDC, &focusRect);
+        InflateRect(&focusRect, -Scale(3), -Scale(3));
+        HPEN focusPen = CreatePen(
+            PS_SOLID, std::max(1, Scale(2)),
+            id == IDC_BTN_SAVE ? RGB(255, 255, 255) : RGB(29, 78, 216));
+        HGDIOBJ focusOldBrush = SelectObject(item->hDC, GetStockObject(NULL_BRUSH));
+        HGDIOBJ focusOldPen = SelectObject(item->hDC, focusPen);
+        RoundRect(item->hDC, focusRect.left, focusRect.top, focusRect.right,
+                  focusRect.bottom, Scale(8), Scale(8));
+        SelectObject(item->hDC, focusOldPen);
+        SelectObject(item->hDC, focusOldBrush);
+        DeleteObject(focusPen);
     }
+}
+
+void ApplyNativeWindowChrome(HWND window) {
+    HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+    if (!dwm) {
+        return;
+    }
+    using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    DwmSetWindowAttributeFn setAttribute = nullptr;
+    FARPROC proc = GetProcAddress(dwm, "DwmSetWindowAttribute");
+    static_assert(sizeof(setAttribute) == sizeof(proc), "function pointer size mismatch");
+    std::memcpy(&setAttribute, &proc, sizeof(setAttribute));
+    if (setAttribute) {
+        BOOL dark = TRUE;
+        setAttribute(window, 20, &dark, sizeof(dark));
+        const COLORREF caption = RGB(15, 23, 42);
+        setAttribute(window, 35, &caption, sizeof(caption));
+        const COLORREF text = RGB(255, 255, 255);
+        setAttribute(window, 36, &text, sizeof(text));
+        const COLORREF border = RGB(15, 23, 42);
+        setAttribute(window, 34, &border, sizeof(border));
+    }
+    FreeLibrary(dwm);
 }
 
 void CreateSettingsWindow() {
@@ -1872,34 +2346,38 @@ void CreateSettingsWindow() {
     if (!g_settingsWindow) {
         return;
     }
+    ApplyNativeWindowChrome(g_settingsWindow);
     CreateSettingsTooltip(g_settingsWindow);
 
-    CreateLabeledEdit(g_settingsWindow, L"快速滚动阈值 FastThreshold (ms)", L"100",
-                      kRowX, kRowStartY, 330, kEditX, kEditWidth, IDC_EDIT_FAST,
-                      L"单格滚轮事件的最大间隔（毫秒）。小于该值才计入快滚；默认 100。"
-                      L"实际快滚不触发加速时可适当调大。");
-    CreateLabeledEdit(g_settingsWindow, L"触发快滚格数 MinFastTicks", L"3",
-                      kRowX, kRowStartY + kRowGap, 330, kEditX, kEditWidth,
-                      IDC_EDIT_MIN_TICKS,
-                      L"极速模式下触发加速所需的连续同向快滚格数。默认 3；"
-                      L"数值越大越不容易误触。");
-    CreateLabeledEdit(g_settingsWindow, L"最大加速倍率 MaxMultiplier", L"8",
-                      kRowX, kRowStartY + kRowGap * 2, 330, kEditX, kEditWidth,
-                      IDC_EDIT_MAX,
-                      L"快速滚动时允许的最大倍率。8 表示最多一次滚动 8 格；默认 8。");
-    CreateLabeledEdit(g_settingsWindow, L"加速曲线指数 CurvePower", L"1.8",
-                      kRowX, kRowStartY + kRowGap * 3, 330, kEditX, kEditWidth,
-                      IDC_EDIT_CURVE,
-                      L"加速曲线指数。数值越大，只有越快的滚动才接近最大倍率；默认 1.8。");
-    CreateLabeledEdit(g_settingsWindow, L"横向滚动倍率 HorizontalMultiplier", L"1",
-                      kRowX, kRowStartY + kRowGap * 4, 330, kEditX, kEditWidth,
-                      IDC_EDIT_HORIZONTAL,
-                      L"按住后退键滚动时的横向滚动倍率。1 表示与原生横向滚动一致。");
+    CreateField(g_settingsWindow, L"快滚阈值", L"FastThreshold (ms)", L"100",
+                kFieldX1, kFieldY1, kFieldWidth, IDC_EDIT_FAST,
+                L"单格滚轮事件的最大间隔（毫秒）。小于该值才计入快滚；默认 100。"
+                L"实际快滚不触发加速时可适当调大。");
+    CreateField(g_settingsWindow, L"触发格数", L"MinFastTicks", L"3",
+                kFieldX2, kFieldY1, kFieldWidth, IDC_EDIT_MIN_TICKS,
+                L"极速模式下触发加速所需的连续同向快滚格数。默认 3；"
+                L"数值越大越不容易误触。");
+    CreateField(g_settingsWindow, L"最大倍率", L"MaxMultiplier", L"8",
+                kFieldX1, kFieldY2, kFieldWidth, IDC_EDIT_MAX,
+                L"快速滚动时允许的最大倍率。8 表示最多一次滚动 8 格；默认 8。");
+    CreateField(g_settingsWindow, L"曲线指数", L"CurvePower", L"1.8",
+                kFieldX2, kFieldY2, kFieldWidth, IDC_EDIT_CURVE,
+                L"加速曲线指数。数值越大，只有越快的滚动才接近最大倍率；默认 1.8。");
+    CreateField(g_settingsWindow, L"横向倍率", L"HorizontalMultiplier", L"1",
+                kFieldX1, kFieldY3, kFieldWidth, IDC_EDIT_HORIZONTAL,
+                L"按住后退键滚动时的横向滚动倍率。1 表示与原生横向滚动一致。");
+
+    HWND horizontalHint = CreateWindowExW(
+        0, L"STATIC", L"按住后退键滚动时\r\n按此倍率横向滚动",
+        WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOTIFY, Scale(444), Scale(450),
+        Scale(174), Scale(44), g_settingsWindow,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(3010)), g_instance, nullptr);
+    SendMessageW(horizontalHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_hintFont), TRUE);
 
     HWND zoomCheck = CreateWindowExW(
-        0, L"BUTTON", L"防缩放失控 (按住 Ctrl/Alt 恢复 1x)",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, Scale(kRowX), Scale(360),
-        Scale(540), Scale(26), g_settingsWindow,
+        0, L"BUTTON", L"防缩放失控 (Ctrl/Alt 1x)",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, Scale(668), Scale(310),
+        Scale(232), Scale(24), g_settingsWindow,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CHK_ZOOM)), g_instance, nullptr);
     SendMessageW(zoomCheck, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
     AddTooltip(g_settingsWindow, zoomCheck,
@@ -1908,54 +2386,54 @@ void CreateSettingsWindow() {
 
     HWND autoStartCheck = CreateWindowExW(
         0, L"BUTTON", L"开机自动静默启动",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, Scale(kRowX), Scale(392),
-        Scale(400), Scale(26), g_settingsWindow,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, Scale(668), Scale(340),
+        Scale(232), Scale(24), g_settingsWindow,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CHK_AUTOSTART)), g_instance, nullptr);
     SendMessageW(autoStartCheck, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
     AddTooltip(g_settingsWindow, autoStartCheck,
                L"勾选并保存后，把当前 exe 写入当前用户的开机启动项，"
                L"实现登录后静默启动。");
 
-    HWND blacklistLabel = CreateWindowExW(
-        0, L"STATIC", L"进程黑名单（每行一个进程名，不含 .exe；不区分大小写）",
-        WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOTIFY, Scale(kRowX),
-        Scale(422), Scale(568), Scale(22), g_settingsWindow, nullptr, g_instance, nullptr);
-    SendMessageW(blacklistLabel, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
-    AddTooltip(g_settingsWindow, blacklistLabel,
-               L"每行填写一个进程名（不含 .exe）。列出的程序内滚轮加速和"
-               L"侧键+滚轮功能不生效，普通滚轮保持原生。");
+    HWND blacklistHint = CreateWindowExW(
+        0, L"STATIC", L"每行一个进程名，不含 .exe",
+        WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOTIFY, Scale(668), Scale(430),
+        Scale(232), Scale(14), g_settingsWindow,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(3011)), g_instance, nullptr);
+    SendMessageW(blacklistHint, WM_SETFONT, reinterpret_cast<WPARAM>(g_tinyFont), TRUE);
 
     HWND blacklistEdit = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL |
             ES_WANTRETURN | ES_LEFT,
-        Scale(kRowX), Scale(446), Scale(568), Scale(80), g_settingsWindow,
+        Scale(kBlacklistEditX), Scale(kBlacklistEditY), Scale(kBlacklistEditWidth),
+        Scale(kBlacklistEditHeight), g_settingsWindow,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_EDIT_BLACKLIST)), g_instance, nullptr);
     SendMessageW(blacklistEdit, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
     SendMessageW(blacklistEdit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN,
                  MAKELPARAM(Scale(6), Scale(6)));
+    SetWindowSubclass(blacklistEdit, BlacklistTabSubclass, 1, 0);
     AddTooltip(g_settingsWindow, blacklistEdit,
                L"每行填写一个进程名（不含 .exe）。列出的程序内滚轮加速和"
                L"侧键+滚轮功能不生效，普通滚轮保持原生。");
 
     HWND saveButton = CreateWindowExW(
         0, L"BUTTON", L"保存并立即生效",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, Scale(36), Scale(570),
-        Scale(190), Scale(40), g_settingsWindow,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, Scale(234), Scale(kButtonY),
+        Scale(190), Scale(kButtonHeight), g_settingsWindow,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_BTN_SAVE)), g_instance, nullptr);
     SetWindowSubclass(saveButton, FlatButtonSubclass, 1, 0);
 
     HWND resetButton = CreateWindowExW(
         0, L"BUTTON", L"恢复默认值",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, Scale(240), Scale(570),
-        Scale(150), Scale(40), g_settingsWindow,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, Scale(438), Scale(kButtonY),
+        Scale(150), Scale(kButtonHeight), g_settingsWindow,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_BTN_RESET)), g_instance, nullptr);
     SetWindowSubclass(resetButton, FlatButtonSubclass, 1, 0);
 
     HWND closeButton = CreateWindowExW(
         0, L"BUTTON", L"关闭",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, Scale(520), Scale(570),
-        Scale(84), Scale(40), g_settingsWindow,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, Scale(832), Scale(kButtonY),
+        Scale(84), Scale(kButtonHeight), g_settingsWindow,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_BTN_CLOSE)), g_instance, nullptr);
     SetWindowSubclass(closeButton, FlatButtonSubclass, 1, 0);
 
@@ -1982,26 +2460,41 @@ LRESULT CALLBACK SettingsWindowProc(HWND window, UINT message, WPARAM wParam, LP
             EndPaint(window, &paint);
             return 0;
         }
-        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORSTATIC: {
+            HWND control = reinterpret_cast<HWND>(lParam);
+            const int id = GetDlgCtrlID(control);
             SetBkMode(reinterpret_cast<HDC>(wParam), TRANSPARENT);
-            SetTextColor(reinterpret_cast<HDC>(wParam), RGB(58, 67, 82));
+            SetTextColor(reinterpret_cast<HDC>(wParam),
+                         id >= 3000 && id < 3100 ? RGB(100, 116, 139)
+                                                 : RGB(51, 65, 85));
             return reinterpret_cast<LRESULT>(g_cardBrush);
+        }
         case WM_CTLCOLORBTN:
             SetBkMode(reinterpret_cast<HDC>(wParam), TRANSPARENT);
-            SetTextColor(reinterpret_cast<HDC>(wParam), RGB(58, 67, 82));
+            SetTextColor(reinterpret_cast<HDC>(wParam), RGB(51, 65, 85));
             return reinterpret_cast<LRESULT>(g_cardBrush);
         case WM_CTLCOLOREDIT:
-            SetTextColor(reinterpret_cast<HDC>(wParam), RGB(29, 36, 51));
-            SetBkColor(reinterpret_cast<HDC>(wParam), RGB(248, 250, 253));
+            SetTextColor(reinterpret_cast<HDC>(wParam), RGB(15, 23, 42));
+            SetBkColor(reinterpret_cast<HDC>(wParam), RGB(255, 255, 255));
             return reinterpret_cast<LRESULT>(g_editBrush);
         case WM_DRAWITEM:
             DrawOwnerButton(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam));
             return TRUE;
         case WM_CLOSE:
+            g_focusedEditId = 0;
             PopSettingsTooltip();
             ShowWindow(window, SW_HIDE);
             return 0;
         case WM_COMMAND:
+            if (HIWORD(wParam) == EN_SETFOCUS) {
+                g_focusedEditId = LOWORD(wParam);
+                InvalidateRect(window, nullptr, TRUE);
+            } else if (HIWORD(wParam) == EN_KILLFOCUS) {
+                if (g_focusedEditId == LOWORD(wParam)) {
+                    g_focusedEditId = 0;
+                    InvalidateRect(window, nullptr, TRUE);
+                }
+            }
             switch (LOWORD(wParam)) {
                 case IDC_BTN_SAVE:
                     if (HIWORD(wParam) == BN_CLICKED) {
@@ -2017,12 +2510,14 @@ LRESULT CALLBACK SettingsWindowProc(HWND window, UINT message, WPARAM wParam, LP
                     break;
                 case IDC_BTN_CLOSE:
                     if (HIWORD(wParam) == BN_CLICKED) {
+                        g_focusedEditId = 0;
                         PopSettingsTooltip();
                         ShowWindow(window, SW_HIDE);
                         return 0;
                     }
                     break;
                 case IDCANCEL:
+                    g_focusedEditId = 0;
                     ShowWindow(window, SW_HIDE);
                     return 0;
                 default:
@@ -2051,11 +2546,11 @@ void ToggleCurrentProcessBlacklist() {
     if (it == g_config.disabledProcesses.end()) {
         g_config.disabledProcesses.push_back(name);
         SaveConfig();
-        ShowToast(L"🚫 已在 " + name + L" 中禁用加速");
+        ShowToast(L"已在 " + name + L" 中禁用加速");
     } else {
         g_config.disabledProcesses.erase(it);
         SaveConfig();
-        ShowToast(L"✅ 已恢复 " + name + L" 的滚轮加速");
+        ShowToast(L"已恢复 " + name + L" 的滚轮加速");
     }
     ResetWheelAcceleration();
     UpdateTrayTooltip();
@@ -2107,8 +2602,8 @@ void ShowTrayMenu() {
             g_config.globalDisabled = !g_config.globalDisabled;
             SaveConfig();
             ResetWheelAcceleration();
-            ShowToast(g_config.globalDisabled ? L"🌐 已禁用所有程序的滚轮加速"
-                                              : L"🌐 已恢复所有程序的滚轮加速");
+            ShowToast(g_config.globalDisabled ? L"已禁用所有程序的滚轮加速"
+                                              : L"已恢复所有程序的滚轮加速");
             UpdateTrayTooltip();
             break;
         case IDM_DISABLE_CURRENT_APP:
