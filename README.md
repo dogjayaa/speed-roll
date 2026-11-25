@@ -8,7 +8,6 @@ speed roll 是一个纯原生 C++17 / Win32 API 编写的轻量级 Windows 鼠�
 
 ![speed roll 设置界面](preview-settings.png)
 
-![键盘焦点态](preview-settings-focus.png)
 
 ![参数悬停说明](preview-tooltip.png)
 
