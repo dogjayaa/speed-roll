@@ -112,6 +112,7 @@ g++ -std=c++17 -Os -s -mwindows -municode -static -static-libgcc -static-libstdc
 
 ## 实现要点
 
+- 低层鼠标钩子只处理 `WM_MOUSEWHEEL` / `WM_XBUTTONDOWN` / `WM_XBUTTONUP`，其余消息在入口立即 `CallNextHookEx` 放行；钩子内不做 `OpenProcess` / `QueryFullProcessImageNameW`，进程名走 `PID -> 名称` 缓存（上限 512 条，超限清空），前台进程由 `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` 事件更新，钩子线程以 `THREAD_PRIORITY_HIGHEST` 运行。
 - 应用图标由 `speed-roll.rc` 以资源 ID `IDI_APP_ICON`（101）嵌入，启动时用 `LoadImageW` 按 `SM_CXICON` / `SM_CXSMICON` 取对应尺寸；托盘使用小图标，窗口类同时设置 `hIcon` 和 `hIconSm`。资源缺失时才回退到 `CreateAppIcon()` 运行时绘制的 64 px 图标。
 - `WH_MOUSE_LL` 全局钩子；所有模拟输入在 `dwExtraInfo` 中携带 `0x57414343`，钩子检测到后直接放行，避免自触发死循环。
 - 模拟鼠标事件不在钩子回调内同步调用，而是 `PostMessage` 到消息循环后执行，避免低层鼠标钩子重入导致的约 300 ms 阻塞。
@@ -126,6 +127,6 @@ g++ -std=c++17 -Os -s -mwindows -municode -static -static-libgcc -static-libstdc
 
 - Windows 11 x64
 - MinGW-W64 GCC 16.2.0 (UCRT, POSIX, SEH)
-- 生成文件：275,968 字节（269.5 KB / 275.97 KB 十进制）
+- 生成文件：279,552 字节（273.0 KB / 279.55 KB 十进制）
 - 仅依赖 Windows 系统 DLL（USER32、GDI32、SHELL32、ADVAPI32、COMCTL32、IMM32、KERNEL32 及系统 UCRT API Set）；无 libgcc / libstdc++ / winpthread 导入。
 - 私有工作集：空闲约 0.12 MB，设置窗口打开约 0.73 MB；私有提交约 1.65–1.94 MB。

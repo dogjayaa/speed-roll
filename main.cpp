@@ -31,6 +31,7 @@
 #include <cwctype>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -140,6 +141,12 @@ std::wstring g_configPath;
 std::wstring g_lastActiveProcess;
 std::wstring g_toastText;
 int g_dpi = 96;
+
+// PID -> process name cache. The low-level mouse hook must never open another
+// process on the input path, so names are resolved once per PID and reused.
+constexpr size_t kPidCacheLimit = 512;
+std::unordered_map<DWORD, std::wstring> g_pidCache;
+HWINEVENTHOOK g_foregroundHook = nullptr;
 
 // Side-button state. XBUTTON1 = back, XBUTTON2 = forward.
 bool g_x1Down = false;
@@ -295,59 +302,52 @@ void SetControlText(HWND parent, int id, const std::wstring& text) {
     SetDlgItemTextW(parent, id, text.c_str());
 }
 
+std::wstring GetProcessNameById(DWORD processId) {
+    if (processId == 0) {
+        return std::wstring();
+    }
+    auto cached = g_pidCache.find(processId);
+    if (cached != g_pidCache.end()) {
+        return cached->second;
+    }
+
+    std::wstring name;
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (process) {
+        wchar_t path[1024]{};
+        DWORD pathLength = _countof(path);
+        if (QueryFullProcessImageNameW(process, 0, path, &pathLength)) {
+            name = NormalizeProcessName(std::wstring(path, pathLength));
+        }
+        CloseHandle(process);
+    }
+
+    // A clear-all policy keeps the common case O(1) and bounds memory; it is
+    // far cheaper than evicting individual entries on this path.
+    if (g_pidCache.size() >= kPidCacheLimit) {
+        g_pidCache.clear();
+    }
+    g_pidCache.emplace(processId, name);
+    return name;
+}
+
 std::wstring GetWindowProcessName(HWND window) {
     if (!window) {
         return std::wstring();
     }
     DWORD processId = 0;
     GetWindowThreadProcessId(window, &processId);
-    if (processId == 0) {
-        return std::wstring();
-    }
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-    if (!process) {
-        return std::wstring();
-    }
-    wchar_t path[1024]{};
-    DWORD pathLength = _countof(path);
-    std::wstring result;
-    if (QueryFullProcessImageNameW(process, 0, path, &pathLength)) {
-        result = NormalizeProcessName(std::wstring(path, pathLength));
-    }
-    CloseHandle(process);
-    return result;
-}
-
-std::wstring GetForegroundProcessName() {
-    return GetWindowProcessName(GetForegroundWindow());
+    return GetProcessNameById(processId);
 }
 
 std::wstring GetProcessNameAtPoint(POINT point) {
-    struct Cache {
-        HWND window = nullptr;
-        DWORD processId = 0;
-        DWORD tick = 0;
-        std::wstring name;
-    };
-    static Cache cache;
-
     HWND window = WindowFromPoint(point);
     if (!window) {
         return std::wstring();
     }
     DWORD processId = 0;
     GetWindowThreadProcessId(window, &processId);
-    DWORD now = GetTickCount();
-    if (cache.window == window && cache.processId == processId &&
-        static_cast<DWORD>(now - cache.tick) < 750) {
-        return cache.name;
-    }
-    std::wstring name = GetWindowProcessName(window);
-    cache.window = window;
-    cache.processId = processId;
-    cache.tick = now;
-    cache.name = name;
-    return name;
+    return GetProcessNameById(processId);
 }
 
 bool IsShellOrSelf(const std::wstring& name) {
@@ -358,10 +358,24 @@ bool IsShellOrSelf(const std::wstring& name) {
            name == L"searchhost";
 }
 
-void UpdateLastActiveProcess() {
-    std::wstring foreground = GetForegroundProcessName();
+void UpdateLastActiveProcessFromWindow(HWND window) {
+    std::wstring foreground = GetWindowProcessName(window);
     if (!foreground.empty() && !IsShellOrSelf(foreground)) {
         g_lastActiveProcess = foreground;
+    }
+}
+
+void UpdateLastActiveProcess() {
+    UpdateLastActiveProcessFromWindow(GetForegroundWindow());
+}
+
+// Runs on this thread's message loop for every foreground change; the mouse
+// hook no longer polls the foreground window or opens processes per event.
+void CALLBACK ForegroundEventProc(HWINEVENTHOOK, DWORD event, HWND window, LONG objectId,
+                                  LONG childId, DWORD, DWORD) {
+    if (event == EVENT_SYSTEM_FOREGROUND && window && objectId == OBJID_WINDOW &&
+        childId == CHILDID_SELF) {
+        UpdateLastActiveProcessFromWindow(window);
     }
 }
 
@@ -823,31 +837,28 @@ bool HandleXButtonUp(bool forwardButton) {
 }
 
 LRESULT CALLBACK MouseHookProc(int code, WPARAM message, LPARAM lParam) {
-    if (code < 0) {
+    // Ultra-fast reject: only wheel and side-button messages need any work.
+    // Everything else (including injected traffic below) goes straight back.
+    if (code < 0 || (message != WM_MOUSEWHEEL && message != WM_XBUTTONDOWN &&
+                     message != WM_XBUTTONUP)) {
         return CallNextHookEx(g_mouseHook, code, message, lParam);
     }
     const auto* info = reinterpret_cast<const MSLLHOOKSTRUCT*>(lParam);
-    if (!info) {
-        return CallNextHookEx(g_mouseHook, code, message, lParam);
-    }
-    if (info->dwExtraInfo == kInjectedTag) {
+    if (!info || info->dwExtraInfo == kInjectedTag) {
         return CallNextHookEx(g_mouseHook, code, message, lParam);
     }
 
     if (message == WM_MOUSEWHEEL) {
-        UpdateLastActiveProcess();
         if (HandleWheel(*info)) {
             return 1;
         }
     } else if (message == WM_XBUTTONDOWN) {
-        UpdateLastActiveProcess();
         WORD button = HIWORD(info->mouseData);
         if (button == XBUTTON1 || button == XBUTTON2) {
             HandleXButtonDown(button == XBUTTON2);
             return 1;
         }
     } else if (message == WM_XBUTTONUP) {
-        UpdateLastActiveProcess();
         WORD button = HIWORD(info->mouseData);
         if (button == XBUTTON1 || button == XBUTTON2) {
             if (HandleXButtonUp(button == XBUTTON2)) {
@@ -2077,6 +2088,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 1;
     }
 
+    // Foreground tracking is event-driven, so the mouse hook never polls the
+    // foreground window or resolves a process path on the input path.
+    UpdateLastActiveProcess();
+    g_foregroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
+                                       ForegroundEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+
+    // The hook callback runs on this thread; raise its scheduling priority so
+    // a busy system cannot add latency to global mouse input handling.
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+
     // Trim initial working set; the app otherwise keeps a tiny, stable footprint.
     SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1),
                              static_cast<SIZE_T>(-1));
@@ -2110,6 +2131,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (g_mouseHook) {
         UnhookWindowsHookEx(g_mouseHook);
         g_mouseHook = nullptr;
+    }
+    if (g_foregroundHook) {
+        UnhookWinEvent(g_foregroundHook);
+        g_foregroundHook = nullptr;
     }
     RemoveTrayIcon();
     if (g_settingsWindow) {
