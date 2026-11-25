@@ -116,7 +116,8 @@ g++ -std=c++17 -Os -s -mwindows -municode -static -static-libgcc -static-libstdc
 - 进程名走 `PID -> 名称` 缓存（上限 512 条，超限清空），前台进程由 `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` 事件更新；进程以 `HIGH_PRIORITY_CLASS` 运行，通过 `SetProcessInformation(ProcessPowerThrottling)` 关闭 Win11 的 EcoQoS 执行节流，钩子线程为 `THREAD_PRIORITY_HIGHEST`。
 - 应用图标由 `speed-roll.rc` 以资源 ID `IDI_APP_ICON`（101）嵌入，启动时用 `LoadImageW` 按 `SM_CXICON` / `SM_CXSMICON` 取对应尺寸；托盘使用小图标，窗口类同时设置 `hIcon` 和 `hIconSm`。资源缺失时才回退到 `CreateAppIcon()` 运行时绘制的 64 px 图标。
 - `WH_MOUSE_LL` 全局钩子；垂直滚轮、水平滚轮和侧键补发全部通过 `SendInput(INPUT_MOUSE)` 注入（不再使用 `mouse_event`），所有模拟输入在 `dwExtraInfo` 中携带 `0x57414343`，钩子检测到后直接放行，避免自触发死循环。
-- 模拟鼠标事件不在钩子回调内同步调用，而是 `PostMessage` 到消息循环后执行，避免低层鼠标钩子重入导致的约 300 ms 阻塞。
+- 可选诊断：exe 同目录放置 `diagnostics.on` 后，会把滚轮投递延迟、回调耗时按 5 秒聚合写入 `diagnostics.log`，不影响正常使用。
+- 模拟鼠标事件不在钩子回调内同步调用，而是写入无锁单生产者/单消费者队列，由独立的高优先级注入线程执行 `SendInput`，避免低层钩子重入和同线程注入把输入队列堵住（实测加速压力下投递延迟从 20–300 ms 降到 ≤1 ms）。
 - 普通模式的滚轮事件直接 `CallNextHookEx` 放行；只有极速模式才累计 `fastStreak` 并可能注入倍速滚轮。
 - 前进键 + 滚轮会捕获鼠标下顶层窗口并在注入前置前，然后在独立异步线程中用 `keybd_event` 分步发送 `VK_LCONTROL` + `VK_HOME`/`VK_END`，每步间隔 15 ms，兼容浏览器、WPS、金山文档和 LibreOffice。
 - `Home`/`End` 的按下与抬起均带 `KEYEVENTF_EXTENDEDKEY` 和 `MapVirtualKeyW` 扫描码，避免被办公软件误判为小键盘键；`VK_LCONTROL` 最后一定会释放。
@@ -128,6 +129,6 @@ g++ -std=c++17 -Os -s -mwindows -municode -static -static-libgcc -static-libstdc
 
 - Windows 11 x64
 - MinGW-W64 GCC 16.2.0 (UCRT, POSIX, SEH)
-- 生成文件：279,552 字节（273.0 KB / 279.55 KB 十进制）
+- 生成文件：310,784 字节（303.5 KB / 310.78 KB 十进制）
 - 仅依赖 Windows 系统 DLL（USER32、GDI32、SHELL32、ADVAPI32、COMCTL32、IMM32、KERNEL32 及系统 UCRT API Set）；无 libgcc / libstdc++ / winpthread 导入。
 - 私有工作集：空闲约 0.12 MB，设置窗口打开约 0.73 MB；私有提交约 1.65–1.94 MB。

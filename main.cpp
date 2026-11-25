@@ -22,9 +22,12 @@
 #include "resource.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <climits>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <cstdint>
 #include <cstdlib>
 #include <cwchar>
@@ -152,6 +155,30 @@ HWINEVENTHOOK g_foregroundHook = nullptr;
 // these two values, so scrolling never performs a window/process query.
 std::wstring g_currentForegroundProc;
 HWND g_currentForegroundWindow = nullptr;
+
+// Opt-in latency diagnostics. Enabled when "diagnostics.on" sits next to the
+// executable; the counters are updated from the hook with interlocked ops only
+// and flushed to diagnostics.log from the message loop.
+bool g_diagEnabled = false;
+volatile LONG g_diagWheelCount = 0;
+volatile LONG g_diagDelayBuckets[6] = {};
+volatile LONG g_diagDelaySumMs = 0;
+volatile LONG g_diagDelayMaxMs = 0;
+volatile LONG g_diagWorkSumUs = 0;
+volatile LONG g_diagWorkMaxUs = 0;
+
+// Single-producer/single-consumer injection queue. The hook only enqueues and
+// signals; a separate high-priority thread performs SendInput so the hook
+// thread never blocks inside the input stack.
+constexpr size_t kInjectQueueSize = 1024;
+struct InjectEntry {
+    InjectAction action;
+    LONG_PTR data;
+};
+InjectEntry g_injectQueue[kInjectQueueSize]{};
+std::atomic<size_t> g_injectHead{0};
+std::atomic<size_t> g_injectTail{0};
+HANDLE g_injectEvent = nullptr;
 
 // Side-button state. XBUTTON1 = back, XBUTTON2 = forward.
 bool g_x1Down = false;
@@ -579,6 +606,65 @@ double NowMilliseconds() {
            static_cast<double>(g_qpcFrequency.QuadPart);
 }
 
+void UpdateDiagnosticMax(volatile LONG* target, LONG value) {
+    LONG current = *target;
+    while (value > current) {
+        LONG previous = InterlockedCompareExchange(target, value, current);
+        if (previous == current) {
+            return;
+        }
+        current = previous;
+    }
+}
+
+// Called from the hook; interlocked counters only, no I/O on the input path.
+void RecordWheelDiagnostics(DWORD delayMs, LONGLONG workUs) {
+    InterlockedIncrement(&g_diagWheelCount);
+    const LONG bucket = delayMs <= 1 ? 0
+                      : delayMs <= 2 ? 1
+                      : delayMs <= 5 ? 2
+                      : delayMs <= 10 ? 3
+                      : delayMs <= 20 ? 4
+                                     : 5;
+    InterlockedIncrement(&g_diagDelayBuckets[bucket]);
+    InterlockedExchangeAdd(&g_diagDelaySumMs, static_cast<LONG>(delayMs));
+    UpdateDiagnosticMax(&g_diagDelayMaxMs, static_cast<LONG>(delayMs));
+    const LONG work = static_cast<LONG>(workUs);
+    InterlockedExchangeAdd(&g_diagWorkSumUs, work);
+    UpdateDiagnosticMax(&g_diagWorkMaxUs, work);
+}
+
+void DumpWheelDiagnostics() {
+    if (!g_diagEnabled) {
+        return;
+    }
+    const LONG count = g_diagWheelCount;
+    if (count == 0) {
+        return;
+    }
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    char line[512];
+    std::snprintf(
+        line, sizeof(line),
+        "%04u-%02u-%02u %02u:%02u:%02u count=%ld "
+        "delay<=1:%ld <=2:%ld <=5:%ld <=10:%ld <=20:%ld >20:%ld "
+        "avg=%.2fms max=%ldms work_avg=%.3fms work_max=%ldus\n",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, count,
+        g_diagDelayBuckets[0], g_diagDelayBuckets[1], g_diagDelayBuckets[2],
+        g_diagDelayBuckets[3], g_diagDelayBuckets[4], g_diagDelayBuckets[5],
+        static_cast<double>(g_diagDelaySumMs) / count, g_diagDelayMaxMs,
+        static_cast<double>(g_diagWorkSumUs) / count / 1000.0, g_diagWorkMaxUs);
+    HANDLE file = CreateFileW((g_exeDir + L"\\diagnostics.log").c_str(), FILE_APPEND_DATA,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(file, line, static_cast<DWORD>(std::strlen(line)), &written, nullptr);
+        CloseHandle(file);
+    }
+}
+
 void ResetWheelAcceleration() {
     g_wheelRemainder = 0.0;
     g_lastWheelDirection = 0;
@@ -669,15 +755,54 @@ void ReplayXButton(WORD button) {
     SendMouseInput(MOUSEEVENTF_XUP, button);
 }
 
-// Never call mouse_event/SendInput directly from inside a WH_MOUSE_LL callback.
-// The injected mouse event shares the active hook chain and can block the
-// callback until the low-level hook timeout (~300 ms). Queue the injection and
-// let the message loop run it immediately after the callback returns.
-void QueueInjection(InjectAction action, LONG_PTR data = 0) {
-    if (g_mainWindow) {
-        PostMessageW(g_mainWindow, kInjectMessage, static_cast<WPARAM>(action),
-                     static_cast<LPARAM>(data));
+DWORD WINAPI InjectionThreadProc(void*) {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    for (;;) {
+        WaitForSingleObject(g_injectEvent, INFINITE);
+        for (;;) {
+            const size_t tail = g_injectTail.load(std::memory_order_relaxed);
+            if (tail == g_injectHead.load(std::memory_order_acquire)) {
+                break;
+            }
+            const InjectEntry entry = g_injectQueue[tail];
+            g_injectTail.store((tail + 1) % kInjectQueueSize, std::memory_order_release);
+            switch (entry.action) {
+                case INJECT_WHEEL:
+                    SendWheelDelta(static_cast<int>(entry.data));
+                    break;
+                case INJECT_HWHEEL:
+                    SendHorizontalWheelDelta(static_cast<int>(entry.data));
+                    break;
+                case INJECT_XBUTTON1:
+                    ReplayXButton(XBUTTON1);
+                    break;
+                case INJECT_XBUTTON2:
+                    ReplayXButton(XBUTTON2);
+                    break;
+            }
+        }
     }
+}
+
+// Never call SendInput directly from the hook thread: the injected event
+// re-enters the same hook chain and can stall input for the low-level hook
+// timeout. Enqueue instead; the dedicated thread performs the injection.
+void QueueInjection(InjectAction action, LONG_PTR data = 0) {
+    if (!g_injectEvent) {
+        if (g_mainWindow) {
+            PostMessageW(g_mainWindow, kInjectMessage, static_cast<WPARAM>(action),
+                         static_cast<LPARAM>(data));
+        }
+        return;
+    }
+    const size_t head = g_injectHead.load(std::memory_order_relaxed);
+    const size_t next = (head + 1) % kInjectQueueSize;
+    if (next == g_injectTail.load(std::memory_order_acquire)) {
+        return;  // Queue full: drop rather than block the hook callback.
+    }
+    g_injectQueue[head] = InjectEntry{action, data};
+    g_injectHead.store(next, std::memory_order_release);
+    SetEvent(g_injectEvent);
 }
 
 void EnsureToastWindow();
@@ -870,7 +995,23 @@ LRESULT CALLBACK MouseHookProc(int code, WPARAM message, LPARAM lParam) {
     }
 
     if (message == WM_MOUSEWHEEL) {
-        if (HandleWheel(*info)) {
+        LARGE_INTEGER start{};
+        DWORD delayMs = 0;
+        if (g_diagEnabled) {
+            QueryPerformanceCounter(&start);
+            delayMs = GetTickCount() - info->time;
+        }
+        const bool consumed = HandleWheel(*info);
+        if (g_diagEnabled) {
+            LARGE_INTEGER end{};
+            QueryPerformanceCounter(&end);
+            const LONGLONG ticks = end.QuadPart - start.QuadPart;
+            const LONGLONG workUs = g_qpcFrequency.QuadPart > 0
+                                        ? ticks * 1000000 / g_qpcFrequency.QuadPart
+                                        : 0;
+            RecordWheelDiagnostics(delayMs, workUs);
+        }
+        if (consumed) {
             return 1;
         }
     } else if (message == WM_XBUTTONDOWN) {
@@ -2121,6 +2262,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g_exeDir = GetDirectoryName(g_exePath);
     g_exeName = NormalizeProcessName(g_exePath);
     g_configPath = g_exeDir + L"\\config.ini";
+    g_diagEnabled =
+        GetFileAttributesW((g_exeDir + L"\\diagnostics.on").c_str()) != INVALID_FILE_ATTRIBUTES;
 
     QueryPerformanceFrequency(&g_qpcFrequency);
     LoadConfig();
@@ -2142,6 +2285,24 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     }
 
     AddTrayIcon();
+    if (g_diagEnabled) {
+        // Snapshot from a helper thread so log I/O never runs on the hook thread.
+        std::thread([]() {
+            for (;;) {
+                Sleep(5000);
+                DumpWheelDiagnostics();
+            }
+        }).detach();
+    }
+
+    g_injectEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (g_injectEvent) {
+        HANDLE injectThread =
+            CreateThread(nullptr, 0, InjectionThreadProc, nullptr, 0, nullptr);
+        if (injectThread) {
+            CloseHandle(injectThread);
+        }
+    }
 
     g_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, MouseHookProc, instance, 0);
     if (!g_mouseHook) {
@@ -2190,6 +2351,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         DispatchMessageW(&message);
     }
 
+    DumpWheelDiagnostics();
     if (g_mouseHook) {
         UnhookWindowsHookEx(g_mouseHook);
         g_mouseHook = nullptr;
