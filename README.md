@@ -78,7 +78,7 @@ DisabledProcesses=
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-脚本会编译、strip，并同时发布一份到同级的 `speed-roll-runtime\speed roll.exe`。也可以直接指定编译器：
+脚本会先用 `windres` 把 `speed-roll.rc` 编译成资源对象（图标 + 版本信息），再编译、strip，并同时发布一份到同级的 `speed-roll-runtime\speed roll.exe`。也可以直接指定编译器：
 
 ```powershell
 .\build.ps1 -Compiler C:\path\to\g++.exe -Strip C:\path\to\strip.exe
@@ -87,14 +87,18 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 等价的 MinGW 命令：
 
 ```text
+windres --codepage=65001 -O coff -I . -i speed-roll.rc -o build\speed-roll.res
 g++ -std=c++17 -Os -s -mwindows -municode -static -static-libgcc -static-libstdc++ ^
     -ffunction-sections -fdata-sections -Wl,--gc-sections ^
-    -o "speed roll.exe" main.cpp ^
+    -o "speed roll.exe" main.cpp build\speed-roll.res ^
     -luser32 -lshell32 -lgdi32 -limm32 -ladvapi32 -lpsapi -lcomctl32
 ```
 
+`speed roll.ico` 包含 16/20/24/32/40/48/64/128/256 多档尺寸（小尺寸 DIB，大尺寸 PNG），因此资源管理器、任务栏、托盘和标题栏都能取到原生尺寸，不必缩放 64 px 位图。
+
 ## 实现要点
 
+- 应用图标由 `speed-roll.rc` 以资源 ID `IDI_APP_ICON`（101）嵌入，启动时用 `LoadImageW` 按 `SM_CXICON` / `SM_CXSMICON` 取对应尺寸；托盘使用小图标，窗口类同时设置 `hIcon` 和 `hIconSm`。资源缺失时才回退到 `CreateAppIcon()` 运行时绘制的 64 px 图标。
 - `WH_MOUSE_LL` 全局钩子；所有模拟输入在 `dwExtraInfo` 中携带 `0x57414343`，钩子检测到后直接放行，避免自触发死循环。
 - 模拟鼠标事件不在钩子回调内同步调用，而是 `PostMessage` 到消息循环后执行，避免低层鼠标钩子重入导致的约 300 ms 阻塞。
 - 普通模式的滚轮事件直接 `CallNextHookEx` 放行；只有极速模式才累计 `fastStreak` 并可能注入倍速滚轮。
@@ -108,6 +112,6 @@ g++ -std=c++17 -Os -s -mwindows -municode -static -static-libgcc -static-libstdc
 
 - Windows 11 x64
 - MinGW-W64 GCC 16.2.0 (UCRT, POSIX, SEH)
-- 生成文件：292,352 字节（285.5 KB / 292.35 KB 十进制）
+- 生成文件：275,968 字节（269.5 KB / 275.97 KB 十进制）
 - 仅依赖 Windows 系统 DLL（USER32、GDI32、SHELL32、ADVAPI32、COMCTL32、IMM32、KERNEL32 及系统 UCRT API Set）；无 libgcc / libstdc++ / winpthread 导入。
 - 私有工作集：空闲约 0.12 MB，设置窗口打开约 0.73 MB；私有提交约 1.65–1.94 MB。

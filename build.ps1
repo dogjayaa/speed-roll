@@ -22,6 +22,22 @@ if (-not $Strip) {
     $Strip = Join-Path (Split-Path -Parent $Compiler) "strip.exe"
 }
 
+# The icon and version block live in speed-roll.rc; windres turns them into a
+# COFF object that is linked into the executable.
+$resourceScript = Join-Path $root "speed-roll.rc"
+$resourceObject = Join-Path $root "build\speed-roll.res"
+$windres = Join-Path (Split-Path -Parent $Compiler) "windres.exe"
+if (Test-Path -LiteralPath $resourceScript) {
+    if (-not (Test-Path -LiteralPath $windres)) {
+        throw "windres.exe not found next to $Compiler. MinGW-w64 is required to embed speed-roll.rc."
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $resourceObject) | Out-Null
+    & $windres "--codepage=65001" "-O" "coff" "-I" $root "-i" $resourceScript "-o" $resourceObject
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+
 $compileArgs = @(
     "-std=c++17",
     "-Os",
@@ -54,6 +70,9 @@ $compileArgs = @(
     "-lpsapi",
     "-lcomctl32"
 )
+if (Test-Path -LiteralPath $resourceObject) {
+    $compileArgs += $resourceObject
+}
 
 Push-Location $root
 try {

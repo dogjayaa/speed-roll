@@ -19,6 +19,8 @@
 #include <imm.h>
 #include <psapi.h>
 
+#include "resource.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <climits>
@@ -116,6 +118,7 @@ HWND g_toastWindow = nullptr;
 HHOOK g_mouseHook = nullptr;
 HANDLE g_instanceMutex = nullptr;
 HICON g_appIcon = nullptr;
+HICON g_appIconSmall = nullptr;
 HFONT g_uiFont = nullptr;
 HFONT g_titleFont = nullptr;
 HFONT g_subtitleFont = nullptr;
@@ -972,6 +975,17 @@ HICON CreateAppIcon() {
     return icon;
 }
 
+// Prefer the multi-resolution icon embedded by speed-roll.rc so Explorer,
+// the taskbar, the tray and the title bar all render a crisp native size.
+HICON LoadAppIcon(int width, int height) {
+    HICON icon = static_cast<HICON>(LoadImageW(
+        g_instance, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, width, height, 0));
+    if (icon) {
+        return icon;
+    }
+    return CreateAppIcon();
+}
+
 void CreateFonts() {
     HDC screen = GetDC(nullptr);
     g_dpi = GetDeviceCaps(screen, LOGPIXELSY);
@@ -1175,7 +1189,7 @@ void AddTrayIcon() {
     g_trayData.uID = 1;
     g_trayData.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_trayData.uCallbackMessage = kTrayMessage;
-    g_trayData.hIcon = g_appIcon;
+    g_trayData.hIcon = g_appIconSmall ? g_appIconSmall : g_appIcon;
     lstrcpynW(g_trayData.szTip, L"speed roll | 极速模式", _countof(g_trayData.szTip));
     Shell_NotifyIconW(NIM_ADD, &g_trayData);
     UpdateTrayTooltip();
@@ -1967,6 +1981,7 @@ bool RegisterWindowClasses() {
     mainClass.lpfnWndProc = MainWindowProc;
     mainClass.hInstance = g_instance;
     mainClass.hIcon = g_appIcon;
+    mainClass.hIconSm = g_appIconSmall;
     mainClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     mainClass.lpszClassName = kMainClass;
     if (!RegisterClassExW(&mainClass)) {
@@ -1978,6 +1993,7 @@ bool RegisterWindowClasses() {
     settingsClass.lpfnWndProc = SettingsWindowProc;
     settingsClass.hInstance = g_instance;
     settingsClass.hIcon = g_appIcon;
+    settingsClass.hIconSm = g_appIconSmall;
     settingsClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     settingsClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
     settingsClass.lpszClassName = kSettingsClass;
@@ -2036,10 +2052,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     LoadConfig();
     g_autoStart = QueryAutoStart();
 
-    g_appIcon = CreateAppIcon();
+    g_appIcon = LoadAppIcon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
     if (!g_appIcon) {
         g_appIcon = LoadIconW(nullptr, IDI_APPLICATION);
     }
+    const int smallIconSize = GetSystemMetrics(SM_CXSMICON);
+    g_appIconSmall = LoadAppIcon(smallIconSize, smallIconSize);
 
     CreateFonts();
     g_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
@@ -2099,6 +2117,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     }
     if (g_toastWindow) {
         DestroyWindow(g_toastWindow);
+    }
+    if (g_appIconSmall) {
+        DestroyIcon(g_appIconSmall);
+        g_appIconSmall = nullptr;
     }
     if (g_appIcon) {
         DestroyIcon(g_appIcon);
