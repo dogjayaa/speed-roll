@@ -742,21 +742,19 @@ bool HandleWheel(const MSLLHOOKSTRUCT& info) {
     g_lastWheelDirection = direction;
     g_lastWheelMs = nowMs;
 
-    // A pause, a slow tick, or a reversal ends the fast streak. The first
-    // tick of the new gesture is always delivered at exactly 1x.
+    // A pause, a slow tick, or a reversal ends the fast streak. The native
+    // event is passed through untouched so Win11 keeps its smooth wheel path.
     if (slow || reversed) {
         g_fastStreak = 0;
         g_wheelRemainder = 0.0;
-        QueueInjection(INJECT_WHEEL, direction * kWheelDelta);
-        return true;
+        return false;
     }
 
     if (g_config.preventZoomOverrun &&
         ((GetAsyncKeyState(VK_CONTROL) & 0x8000) || (GetAsyncKeyState(VK_MENU) & 0x8000))) {
         g_fastStreak = 0;
         g_wheelRemainder = 0.0;
-        QueueInjection(INJECT_WHEEL, direction * kWheelDelta);
-        return true;
+        return false;
     }
 
     ++g_fastStreak;
@@ -779,14 +777,18 @@ bool HandleWheel(const MSLLHOOKSTRUCT& info) {
     const double wholeClicks = std::floor(totalClicks);
     g_wheelRemainder = totalClicks - wholeClicks;
 
-    if (wholeClicks >= 1.0) {
+    if (wholeClicks >= 2.0) {
         int clicks = static_cast<int>(wholeClicks);
         if (clicks > 1000) {
             clicks = 1000;
         }
         QueueInjection(INJECT_WHEEL, direction * kWheelDelta * clicks);
+        return true;  // swallow the native notch, the aggregated event replaces it
     }
-    return true;
+
+    // A single notch needs no rewrite: hand the original hardware event back so
+    // Windows 11's smooth scrolling pipeline is never interrupted.
+    return false;
 }
 
 bool HandleXButtonDown(bool forwardButton) {
@@ -995,6 +997,48 @@ HICON LoadAppIcon(int width, int height) {
         return icon;
     }
     return CreateAppIcon();
+}
+
+// Windows 11 may demote a windowless tray process to an efficiency core and
+// apply EcoQoS execution-speed throttling. Raise the scheduling class and
+// explicitly opt out of power throttling so hook callbacks stay prompt.
+void ConfigureProcessScheduling() {
+    SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+
+    struct PowerThrottlingState {
+        ULONG Version;
+        ULONG ControlMask;
+        ULONG StateMask;
+    };
+    using SetProcessInformationFn = BOOL(WINAPI*)(HANDLE, int, LPVOID, DWORD);
+    // PROCESS_INFORMATION_CLASS::ProcessPowerThrottling, version 1 and
+    // PROCESS_POWER_THROTTLING_EXECUTION_SPEED. Resolved dynamically so the
+    // binary still loads on systems that predate the API.
+    constexpr int kProcessPowerThrottling = 4;
+    constexpr ULONG kPowerThrottlingVersion = 1;
+    constexpr ULONG kExecutionSpeed = 0x1;
+
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    if (kernel32) {
+        FARPROC address = GetProcAddress(kernel32, "SetProcessInformation");
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+        auto setProcessInformation =
+            reinterpret_cast<SetProcessInformationFn>(address);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        if (setProcessInformation) {
+            // StateMask 0 disables the execution-speed throttle.
+            PowerThrottlingState state{kPowerThrottlingVersion, kExecutionSpeed, 0};
+            setProcessInformation(GetCurrentProcess(), kProcessPowerThrottling, &state,
+                                  sizeof(state));
+        }
+    }
+
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 }
 
 void CreateFonts() {
@@ -2094,9 +2138,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     g_foregroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
                                        ForegroundEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
 
-    // The hook callback runs on this thread; raise its scheduling priority so
-    // a busy system cannot add latency to global mouse input handling.
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    // Keep the hook thread out of Win11's EcoQoS / efficiency-core demotion.
+    ConfigureProcessScheduling();
 
     // Trim initial working set; the app otherwise keeps a tiny, stable footprint.
     SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1),
