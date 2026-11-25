@@ -148,6 +148,11 @@ constexpr size_t kPidCacheLimit = 512;
 std::unordered_map<DWORD, std::wstring> g_pidCache;
 HWINEVENTHOOK g_foregroundHook = nullptr;
 
+// Foreground cache filled by the WinEvent hook. The mouse hook only reads
+// these two values, so scrolling never performs a window/process query.
+std::wstring g_currentForegroundProc;
+HWND g_currentForegroundWindow = nullptr;
+
 // Side-button state. XBUTTON1 = back, XBUTTON2 = forward.
 bool g_x1Down = false;
 bool g_x2Down = false;
@@ -340,16 +345,6 @@ std::wstring GetWindowProcessName(HWND window) {
     return GetProcessNameById(processId);
 }
 
-std::wstring GetProcessNameAtPoint(POINT point) {
-    HWND window = WindowFromPoint(point);
-    if (!window) {
-        return std::wstring();
-    }
-    DWORD processId = 0;
-    GetWindowThreadProcessId(window, &processId);
-    return GetProcessNameById(processId);
-}
-
 bool IsShellOrSelf(const std::wstring& name) {
     if (name.empty()) {
         return true;
@@ -358,15 +353,28 @@ bool IsShellOrSelf(const std::wstring& name) {
            name == L"searchhost";
 }
 
-void UpdateLastActiveProcessFromWindow(HWND window) {
+// Refreshes both the blacklist-facing foreground process and the tray-facing
+// display name. Runs only on foreground changes, never on the wheel path.
+void UpdateForegroundCache(HWND window) {
+    if (!window) {
+        return;
+    }
+    g_currentForegroundWindow = GetAncestor(window, GA_ROOT);
+    if (!g_currentForegroundWindow) {
+        g_currentForegroundWindow = window;
+    }
     std::wstring foreground = GetWindowProcessName(window);
-    if (!foreground.empty() && !IsShellOrSelf(foreground)) {
+    if (foreground.empty()) {
+        return;
+    }
+    g_currentForegroundProc = foreground;
+    if (!IsShellOrSelf(foreground)) {
         g_lastActiveProcess = foreground;
     }
 }
 
 void UpdateLastActiveProcess() {
-    UpdateLastActiveProcessFromWindow(GetForegroundWindow());
+    UpdateForegroundCache(GetForegroundWindow());
 }
 
 // Runs on this thread's message loop for every foreground change; the mouse
@@ -375,7 +383,7 @@ void CALLBACK ForegroundEventProc(HWINEVENTHOOK, DWORD event, HWND window, LONG 
                                   LONG childId, DWORD, DWORD) {
     if (event == EVENT_SYSTEM_FOREGROUND && window && objectId == OBJID_WINDOW &&
         childId == CHILDID_SELF) {
-        UpdateLastActiveProcessFromWindow(window);
+        UpdateForegroundCache(window);
     }
 }
 
@@ -578,12 +586,23 @@ void ResetWheelAcceleration() {
     g_fastStreak = 0;
 }
 
+// Modern native injection: SendInput reaches the input stack without the
+// legacy mouse_event compatibility layer Windows 11 keeps for old binaries.
+void SendMouseInput(DWORD flags, DWORD mouseData) {
+    INPUT input{};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = flags;
+    input.mi.mouseData = mouseData;
+    input.mi.dwExtraInfo = kInjectedTag;
+    SendInput(1, &input, sizeof(input));
+}
+
 void SendWheelDelta(int delta) {
-    mouse_event(MOUSEEVENTF_WHEEL, 0, 0, static_cast<DWORD>(delta), kInjectedTag);
+    SendMouseInput(MOUSEEVENTF_WHEEL, static_cast<DWORD>(delta));
 }
 
 void SendHorizontalWheelDelta(int delta) {
-    mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, static_cast<DWORD>(delta), kInjectedTag);
+    SendMouseInput(MOUSEEVENTF_HWHEEL, static_cast<DWORD>(delta));
 }
 
 void EnsureWindowForeground(HWND target) {
@@ -646,8 +665,8 @@ void StartDocumentExtremeAsync(bool top, HWND target) {
 }
 
 void ReplayXButton(WORD button) {
-    mouse_event(MOUSEEVENTF_XDOWN, 0, 0, button, kInjectedTag);
-    mouse_event(MOUSEEVENTF_XUP, 0, 0, button, kInjectedTag);
+    SendMouseInput(MOUSEEVENTF_XDOWN, button);
+    SendMouseInput(MOUSEEVENTF_XUP, button);
 }
 
 // Never call mouse_event/SendInput directly from inside a WH_MOUSE_LL callback.
@@ -685,9 +704,10 @@ bool HandleWheel(const MSLLHOOKSTRUCT& info) {
         return false;
     }
     const int direction = rawDelta > 0 ? 1 : -1;
-    const std::wstring targetProcess = GetProcessNameAtPoint(info.pt);
 
-    if (IsScrollDisabledFor(targetProcess)) {
+    // The foreground process comes from the WinEvent cache: no WindowFromPoint,
+    // no GetWindowThreadProcessId and no process query on the wheel path.
+    if (IsScrollDisabledFor(g_currentForegroundProc)) {
         ResetWheelAcceleration();
         return false;  // native wheel is passed through untouched
     }
@@ -698,10 +718,9 @@ bool HandleWheel(const MSLLHOOKSTRUCT& info) {
         DWORD now = GetTickCount();
         if (static_cast<DWORD>(now - g_lastHomeEndTick) >= kHomeEndCooldownMs) {
             g_lastHomeEndTick = now;
-            HWND targetRoot = GetAncestor(WindowFromPoint(info.pt), GA_ROOT);
-            // Start the keyboard worker first; the no-activate toast is created
-            // afterwards so it cannot race the target window's focus change.
-            StartDocumentExtremeAsync(direction > 0, targetRoot);
+            // Uses the cached top-level foreground window instead of a
+            // WindowFromPoint lookup inside the hook callback.
+            StartDocumentExtremeAsync(direction > 0, g_currentForegroundWindow);
             ShowToast(direction > 0 ? L"⬆️ 已直达顶部" : L"⬇️ 已直达底部");
         }
         ResetWheelAcceleration();
@@ -751,7 +770,7 @@ bool HandleWheel(const MSLLHOOKSTRUCT& info) {
     }
 
     if (g_config.preventZoomOverrun &&
-        ((GetAsyncKeyState(VK_CONTROL) & 0x8000) || (GetAsyncKeyState(VK_MENU) & 0x8000))) {
+        ((GetKeyState(VK_CONTROL) & 0x8000) != 0 || (GetKeyState(VK_MENU) & 0x8000) != 0)) {
         g_fastStreak = 0;
         g_wheelRemainder = 0.0;
         return false;
