@@ -15,6 +15,20 @@ speed roll 是一个纯原生 C++17 / Win32 API 编写的轻量级 Windows 鼠�
 - 托盘图标双击：打开参数设置。
 - 托盘图标右键：打开动态菜单。
 
+## SmartScreen 提示
+
+程序没有代码签名证书，因此从网络下载的 `speed roll.exe` 首次运行时会弹出“Windows 已保护你的电脑：Microsoft Defender SmartScreen 阻止了无法识别的应用启动”。这是 SmartScreen 对“无数字签名、暂无下载信誉”的新文件的默认提示，并不代表它检测到了病毒。
+
+- 仍然运行：点击“更多信息”，再点“仍要运行”。
+- 解除单个文件的下载锁定（浏览器下载或从压缩包直接解压时常见）：
+
+  ```powershell
+  Unblock-File '.\speed roll.exe'
+  ```
+
+- 直接在本机构建、复制得到的 exe 没有“来自 Internet”的标记，通常不会触发该提示；双击压缩包内的 exe 会被解压到临时目录并带上该标记，所以更容易触发。
+- 要彻底消除提示只能做代码签名：EV 证书可立即建立 SmartScreen 信誉，OV 证书需要累积下载量，Microsoft Azure Trusted Signing 成本更低但需要企业资质。构建脚本本身不做签名。
+
 ## 界面
 
 - 蓝色渐变标题栏、圆角白色参数卡片和强调色操作按钮。
