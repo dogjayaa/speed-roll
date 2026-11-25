@@ -84,10 +84,10 @@ constexpr int kFieldX1 = 252;
 constexpr int kFieldX2 = 443;
 constexpr int kFieldWidth = 179;
 constexpr int kFieldY1 = 312;
-constexpr int kFieldY2 = 378;
-constexpr int kFieldY3 = 444;
-constexpr int kFieldEditOffset = 30;
-constexpr int kFieldEditHeight = 28;
+constexpr int kFieldY2 = 380;
+constexpr int kFieldY3 = 448;
+constexpr int kFieldEditOffset = 22;
+constexpr int kFieldEditHeight = 30;
 constexpr int kBlacklistEditX = 668;
 constexpr int kBlacklistEditY = 448;
 constexpr int kBlacklistEditWidth = 232;
@@ -1636,17 +1636,12 @@ void AddTooltip(HWND parent, HWND control, const wchar_t* text) {
 
 }
 
-void CreateField(HWND parent, const wchar_t* label, const wchar_t* key,
-                 const wchar_t* value, int x, int y, int width, int controlId,
+void CreateField(HWND parent, const wchar_t* label, const wchar_t* value,
+                 int x, int y, int width, int controlId,
                  const wchar_t* tooltipText) {
     HWND labelWindow = CreateWindowExW(
         0, L"STATIC", label, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOTIFY,
-        Scale(x), Scale(y), Scale(width), Scale(14), parent, nullptr, g_instance,
-        nullptr);
-    HWND keyWindow = CreateWindowExW(
-        0, L"STATIC", key, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOTIFY,
-        Scale(x), Scale(y + 15), Scale(width), Scale(11), parent,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(controlId + 1000)), g_instance,
+        Scale(x), Scale(y), Scale(width), Scale(16), parent, nullptr, g_instance,
         nullptr);
     HWND editWindow = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", value,
@@ -1657,10 +1652,6 @@ void CreateField(HWND parent, const wchar_t* label, const wchar_t* key,
     if (labelWindow) {
         SendMessageW(labelWindow, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
         AddTooltip(parent, labelWindow, tooltipText);
-    }
-    if (keyWindow) {
-        SendMessageW(keyWindow, WM_SETFONT, reinterpret_cast<WPARAM>(g_tinyFont), TRUE);
-        AddTooltip(parent, keyWindow, tooltipText);
     }
     if (editWindow) {
         SendMessageW(editWindow, WM_SETFONT, reinterpret_cast<WPARAM>(g_uiFont), TRUE);
@@ -2349,23 +2340,26 @@ void CreateSettingsWindow() {
     ApplyNativeWindowChrome(g_settingsWindow);
     CreateSettingsTooltip(g_settingsWindow);
 
-    CreateField(g_settingsWindow, L"快滚阈值", L"FastThreshold (ms)", L"100",
+    CreateField(g_settingsWindow, L"快滚阈值 (ms)", L"100",
                 kFieldX1, kFieldY1, kFieldWidth, IDC_EDIT_FAST,
-                L"单格滚轮事件的最大间隔（毫秒）。小于该值才计入快滚；默认 100。"
-                L"实际快滚不触发加速时可适当调大。");
-    CreateField(g_settingsWindow, L"触发格数", L"MinFastTicks", L"3",
+                L"FastThreshold：单格滚轮事件的最大间隔（毫秒）。小于该值才计入快滚；"
+                L"默认 100。实际快滚不触发加速时可适当调大。");
+    CreateField(g_settingsWindow, L"触发格数", L"3",
                 kFieldX2, kFieldY1, kFieldWidth, IDC_EDIT_MIN_TICKS,
-                L"极速模式下触发加速所需的连续同向快滚格数。默认 3；"
+                L"MinFastTicks：极速模式下触发加速所需的连续同向快滚格数。默认 3；"
                 L"数值越大越不容易误触。");
-    CreateField(g_settingsWindow, L"最大倍率", L"MaxMultiplier", L"8",
+    CreateField(g_settingsWindow, L"最大倍率 (倍)", L"8",
                 kFieldX1, kFieldY2, kFieldWidth, IDC_EDIT_MAX,
-                L"快速滚动时允许的最大倍率。8 表示最多一次滚动 8 格；默认 8。");
-    CreateField(g_settingsWindow, L"曲线指数", L"CurvePower", L"1.8",
+                L"MaxMultiplier：快速滚动时允许的最大倍率。8 表示最多一次滚动 8 格；"
+                L"默认 8。");
+    CreateField(g_settingsWindow, L"曲线指数", L"1.8",
                 kFieldX2, kFieldY2, kFieldWidth, IDC_EDIT_CURVE,
-                L"加速曲线指数。数值越大，只有越快的滚动才接近最大倍率；默认 1.8。");
-    CreateField(g_settingsWindow, L"横向倍率", L"HorizontalMultiplier", L"1",
+                L"CurvePower：加速曲线指数。数值越大，只有越快的滚动才接近最大倍率；"
+                L"默认 1.8。");
+    CreateField(g_settingsWindow, L"横向倍率 (倍)", L"1",
                 kFieldX1, kFieldY3, kFieldWidth, IDC_EDIT_HORIZONTAL,
-                L"按住后退键滚动时的横向滚动倍率。1 表示与原生横向滚动一致。");
+                L"HorizontalMultiplier：按住后退键滚动时的横向滚动倍率。"
+                L"1 表示与原生横向滚动一致。");
 
     HWND horizontalHint = CreateWindowExW(
         0, L"STATIC", L"按住后退键滚动时\r\n按此倍率横向滚动",

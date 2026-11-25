@@ -6,7 +6,7 @@
 
 speed roll 是一个纯原生 C++17 / Win32 API 编写的轻量级 Windows 鼠标滚轮增强工具。它用低层鼠标钩子实现滚轮变速、侧键复用、无焦点 Toast 和系统托盘黑名单，不依赖任何第三方 DLL。
 
-![speed roll 设置界面](preview-dashboard-v2.png)
+![speed roll 设置界面](preview-dashboard-v3.png)
 
 ![参数悬停说明](preview-tooltip-v2.png)
 
